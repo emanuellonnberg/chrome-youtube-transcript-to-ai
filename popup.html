@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Transcript to AI</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main class="card">
+      <h1>YouTube Transcript to AI</h1>
+      <p class="subtle">Send the current YouTube video's transcript to your configured AI workspace.</p>
+
+      <section class="config">
+        <div class="row">
+          <span class="label">Target</span>
+          <span id="targetLabel" class="value">Loading...</span>
+        </div>
+        <div class="row">
+          <span class="label">Open mode</span>
+          <span id="openModeLabel" class="value">Loading...</span>
+        </div>
+      </section>
+
+      <button id="sendButton" type="button">Send current video transcript</button>
+      <button id="optionsButton" class="secondary" type="button">Open settings</button>
+
+      <p id="statusMessage" class="status" role="status" aria-live="polite"></p>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+  </html>

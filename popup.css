@@ -1,0 +1,85 @@
+:root {
+  color-scheme: light dark;
+  font-family: Arial, sans-serif;
+}
+
+body {
+  margin: 0;
+  min-width: 340px;
+  background: #111827;
+  color: #f9fafb;
+}
+
+.card {
+  padding: 16px;
+}
+
+h1 {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+
+.subtle {
+  margin: 0 0 16px;
+  color: #cbd5e1;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.config {
+  margin-bottom: 16px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.row + .row {
+  margin-top: 8px;
+}
+
+.label {
+  color: #cbd5e1;
+  font-size: 13px;
+}
+
+.value {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+button {
+  width: 100%;
+  border: 0;
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  background: #3b82f6;
+  color: #ffffff;
+}
+
+button.secondary {
+  margin-top: 8px;
+  background: #1f2937;
+  border: 1px solid #334155;
+}
+
+button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.status {
+  min-height: 20px;
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: #bfdbfe;
+  line-height: 1.4;
+}

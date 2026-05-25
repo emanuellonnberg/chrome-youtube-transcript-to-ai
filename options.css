@@ -1,0 +1,107 @@
+:root {
+  color-scheme: light dark;
+  font-family: Arial, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: #0f172a;
+  color: #f8fafc;
+}
+
+.container {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 32px 20px 40px;
+}
+
+h1 {
+  margin: 0 0 8px;
+}
+
+.subtle {
+  margin: 0 0 24px;
+  color: #cbd5e1;
+}
+
+.field {
+  display: block;
+  margin-bottom: 18px;
+}
+
+.field > span {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 700;
+}
+
+.field.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.field.checkbox > span {
+  margin: 0;
+}
+
+select,
+textarea,
+button {
+  font: inherit;
+}
+
+select,
+textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  background: #111827;
+  color: #f8fafc;
+}
+
+textarea {
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.help {
+  margin: 4px 0 18px;
+  color: #cbd5e1;
+}
+
+.help code {
+  display: inline-block;
+  margin: 8px 8px 0 0;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #1e293b;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+}
+
+button {
+  border: 0;
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-weight: 700;
+  cursor: pointer;
+  background: #3b82f6;
+  color: #ffffff;
+}
+
+button.secondary {
+  background: #1f2937;
+  border: 1px solid #334155;
+}
+
+.status {
+  min-height: 20px;
+  margin-top: 16px;
+  color: #93c5fd;
+}

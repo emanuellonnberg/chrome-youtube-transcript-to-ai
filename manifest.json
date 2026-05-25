@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "YouTube Transcript to AI",
+  "version": "1.0.0",
+  "description": "Grab the transcript from the current YouTube video and open it in ChatGPT or Claude.",
+  "permissions": [
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://www.youtube.com/*",
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
+    "https://claude.ai/*"
+  ],
+  "background": {
+    "service_worker": "scripts/background.js"
+  },
+  "action": {
+    "default_title": "YouTube Transcript to AI",
+    "default_popup": "popup.html"
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/watch*"],
+      "js": ["scripts/youtube-content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://claude.ai/*"
+      ],
+      "js": ["scripts/ai-content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

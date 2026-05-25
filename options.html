@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Transcript to AI Settings</title>
+    <link rel="stylesheet" href="options.css">
+  </head>
+  <body>
+    <main class="container">
+      <h1>YouTube Transcript to AI</h1>
+      <p class="subtle">Choose where the transcript should open and how the prompt should be prepared.</p>
+
+      <form id="settingsForm">
+        <label class="field">
+          <span>AI target</span>
+          <select id="target" name="target">
+            <option value="chatgpt">ChatGPT</option>
+            <option value="claude">Claude</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Open AI in</span>
+          <select id="openMode" name="openMode">
+            <option value="new-tab">New tab</option>
+            <option value="new-window">New window</option>
+          </select>
+        </label>
+
+        <label class="field checkbox">
+          <input id="autoSubmit" name="autoSubmit" type="checkbox">
+          <span>Auto-submit after inserting the transcript</span>
+        </label>
+
+        <label class="field">
+          <span>Prompt template</span>
+          <textarea id="promptTemplate" name="promptTemplate" rows="14"></textarea>
+        </label>
+
+        <div class="help">
+          <strong>Available placeholders</strong>
+          <code>{{title}}</code>
+          <code>{{url}}</code>
+          <code>{{transcript}}</code>
+        </div>
+
+        <div class="actions">
+          <button type="submit">Save settings</button>
+          <button id="resetButton" class="secondary" type="button">Reset defaults</button>
+        </div>
+
+        <p id="statusMessage" class="status" role="status" aria-live="polite"></p>
+      </form>
+    </main>
+
+    <script src="options.js"></script>
+  </body>
+  </html>
