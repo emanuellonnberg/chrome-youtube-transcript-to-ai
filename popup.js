@@ -23,7 +23,9 @@ function setStatus(message, isError = false) {
 }
 
 function prettifyTarget(target) {
-  return target === "claude" ? "Claude" : "ChatGPT";
+  if (target === "claude") return "Claude";
+  if (target === "gemini") return "Gemini";
+  return "ChatGPT";
 }
 
 function prettifyOpenMode(openMode) {

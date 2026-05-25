@@ -6,7 +6,8 @@ let lastHandledPromptId = null;
 const TARGET_BY_HOST = {
   "chatgpt.com": "chatgpt",
   "chat.openai.com": "chatgpt",
-  "claude.ai": "claude"
+  "claude.ai": "claude",
+  "gemini.google.com": "gemini"
 };
 
 const INPUT_SELECTORS = {
@@ -20,6 +21,12 @@ const INPUT_SELECTORS = {
     "div[contenteditable='true'][data-testid='chat-input']",
     "div[contenteditable='true'].ProseMirror",
     "div[contenteditable='true'][aria-label*='Talk to Claude']"
+  ],
+  gemini: [
+    "div.ql-editor[contenteditable='true']",
+    "rich-textarea div[contenteditable='true']",
+    "div[contenteditable='true'][aria-label*='Enter a prompt']",
+    "div[contenteditable='true'][aria-label*='Type something']"
   ]
 };
 
@@ -34,6 +41,12 @@ const SUBMIT_SELECTORS = {
     "button[aria-label*='Send message']",
     "button[data-testid='send-button']",
     "button[type='submit']"
+  ],
+  gemini: [
+    "button[aria-label*='Send message']",
+    "button[data-test-id='send-button']",
+    "button.send-button",
+    "button[jsname='Qx7uuf']"
   ]
 };
 

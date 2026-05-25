@@ -11,7 +11,8 @@
     "https://www.youtube.com/*",
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
-    "https://claude.ai/*"
+    "https://claude.ai/*",
+    "https://gemini.google.com/*"
   ],
   "background": {
     "service_worker": "scripts/background.js"
@@ -31,7 +32,8 @@
       "matches": [
         "https://chatgpt.com/*",
         "https://chat.openai.com/*",
-        "https://claude.ai/*"
+        "https://claude.ai/*",
+        "https://gemini.google.com/*"
       ],
       "js": ["scripts/ai-content.js"],
       "run_at": "document_idle"

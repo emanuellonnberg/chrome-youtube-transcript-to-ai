@@ -17,6 +17,9 @@ const AI_TARGETS = {
   },
   claude: {
     url: "https://claude.ai/new"
+  },
+  gemini: {
+    url: "https://gemini.google.com/app"
   }
 };
 
