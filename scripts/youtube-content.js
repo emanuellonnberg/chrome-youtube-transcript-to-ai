@@ -20,17 +20,19 @@ const INLINE_ANCHOR_SELECTORS = [
 let inlineRenderTimer = null;
 let lastKnownUrl = window.location.href;
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type !== "getTranscript") {
-    return false;
-  }
+if (hasExtensionContext()) {
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type !== "getTranscript") {
+      return false;
+    }
 
-  extractTranscriptPayload()
-    .then((payload) => sendResponse({ ok: true, payload }))
-    .catch((error) => sendResponse({ ok: false, error: error.message }));
+    extractTranscriptPayload()
+      .then((payload) => sendResponse({ ok: true, payload }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
 
-  return true;
-});
+    return true;
+  });
+}
 
 async function extractTranscriptPayload() {
   const playerResponse = await readPlayerResponseForCurrentVideo();
@@ -337,6 +339,24 @@ function prettifyTarget(target) {
   return "ChatGPT";
 }
 
+function hasExtensionContext() {
+  try {
+    return Boolean(globalThis.chrome?.runtime?.id);
+  } catch {
+    return false;
+  }
+}
+
+function teardownInlineUi() {
+  if (inlineRenderTimer) {
+    clearTimeout(inlineRenderTimer);
+    inlineRenderTimer = null;
+  }
+
+  document.getElementById(INLINE_ROOT_ID)?.remove();
+  document.getElementById(INLINE_STYLE_ID)?.remove();
+}
+
 function ensureInlineStyle() {
   if (document.getElementById(INLINE_STYLE_ID)) {
     return;
@@ -428,7 +448,20 @@ function createInlineRoot() {
   });
 
   root.querySelector('[data-role="settings"]').addEventListener("click", () => {
-    window.open(chrome.runtime.getURL("options.html"), "_blank", "noopener,noreferrer");
+    if (!hasExtensionContext()) {
+      teardownInlineUi();
+      return;
+    }
+
+    try {
+      window.open(chrome.runtime.getURL("options.html"), "_blank", "noopener,noreferrer");
+    } catch (error) {
+      if (isContextInvalidated(error)) {
+        teardownInlineUi();
+      } else {
+        throw error;
+      }
+    }
   });
 
   return root;
@@ -441,8 +474,13 @@ function setInlineStatus(root, message, isError = false) {
 }
 
 async function renderInlineActions() {
+  if (!hasExtensionContext()) {
+    teardownInlineUi();
+    return;
+  }
+
   if (!isWatchPage()) {
-    document.getElementById(INLINE_ROOT_ID)?.remove();
+    teardownInlineUi();
     return;
   }
 
@@ -459,7 +497,7 @@ async function renderInlineActions() {
     settings = normalizeSettings(await chrome.storage.sync.get(null));
   } catch (error) {
     if (isContextInvalidated(error)) {
-      document.getElementById(INLINE_ROOT_ID)?.remove();
+      teardownInlineUi();
       return;
     }
     throw error;
@@ -514,9 +552,15 @@ function scheduleInlineRender() {
 
   inlineRenderTimer = window.setTimeout(() => {
     inlineRenderTimer = null;
+
+    if (!hasExtensionContext()) {
+      teardownInlineUi();
+      return;
+    }
+
     renderInlineActions().catch((error) => {
       if (isContextInvalidated(error)) {
-        document.getElementById(INLINE_ROOT_ID)?.remove();
+        teardownInlineUi();
         return;
       }
       console.error("[YouTube Transcript to AI]", error);
@@ -525,6 +569,11 @@ function scheduleInlineRender() {
 }
 
 async function handleInlineSend(root, presetId = null) {
+  if (!hasExtensionContext()) {
+    teardownInlineUi();
+    return;
+  }
+
   const buttons = root.querySelectorAll(".ytta-button");
 
   root.dataset.busy = "true";
@@ -554,7 +603,7 @@ async function handleInlineSend(root, presetId = null) {
   } catch (error) {
     if (isContextInvalidated(error)) {
       // Extension was reloaded while this content script was alive; remove stale UI.
-      document.getElementById(INLINE_ROOT_ID)?.remove();
+      teardownInlineUi();
       return;
     }
     console.error("[YouTube Transcript to AI]", error);
@@ -584,6 +633,11 @@ function handlePotentialNavigationChange() {
 }
 
 function startInlineUi() {
+  if (!hasExtensionContext()) {
+    teardownInlineUi();
+    return;
+  }
+
   scheduleInlineRender();
 
   const observer = new MutationObserver(() => {
@@ -598,21 +652,23 @@ function startInlineUi() {
   window.addEventListener("yt-navigate-finish", scheduleInlineRender);
   window.addEventListener("yt-page-data-updated", scheduleInlineRender);
 
-  chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName !== "sync") {
-      return;
-    }
+  if (hasExtensionContext()) {
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName !== "sync") {
+        return;
+      }
 
-    if (
-      changes.target ||
-      changes.openMode ||
-      changes.autoSubmit ||
-      changes.promptTemplate ||
-      changes.defaultPreset
-    ) {
-      scheduleInlineRender();
-    }
-  });
+      if (
+        changes.target ||
+        changes.openMode ||
+        changes.autoSubmit ||
+        changes.promptTemplate ||
+        changes.defaultPreset
+      ) {
+        scheduleInlineRender();
+      }
+    });
+  }
 }
 
 startInlineUi();
