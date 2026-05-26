@@ -33,7 +33,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 async function extractTranscriptPayload() {
-  const playerResponse = readPlayerResponseFromDom();
+  const playerResponse = await readPlayerResponseFromDom();
   const captionTracks =
     playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
 
@@ -65,20 +65,16 @@ async function extractTranscriptPayload() {
   };
 }
 
-function readPlayerResponseFromDom() {
+function getPlayerResponseForCurrentVideo() {
   const currentVideoId = new URLSearchParams(window.location.search).get("v");
+  const global = window.ytInitialPlayerResponse;
 
-  // Only trust window.ytInitialPlayerResponse if it matches the current video.
-  // On SPA navigation YouTube updates it asynchronously, so it may still hold
-  // the previous video's data when the user clicks the button on the new page.
-  if (
-    window.ytInitialPlayerResponse &&
-    (!currentVideoId || window.ytInitialPlayerResponse?.videoDetails?.videoId === currentVideoId)
-  ) {
-    return window.ytInitialPlayerResponse;
+  if (global && (!currentVideoId || global.videoDetails?.videoId === currentVideoId)) {
+    return global;
   }
 
-  // Fallback: scrape it from the inline script tag YouTube writes into the page HTML.
+  // On SPA navigation the inline script tags are NOT re-written, so only check
+  // them on a fresh page load (when the global is absent or matches the first video).
   const scripts = document.querySelectorAll("script");
 
   for (const script of scripts) {
@@ -105,9 +101,28 @@ function readPlayerResponseFromDom() {
     }
   }
 
-  // Last resort: the global may have just been updated by YT's SPA router.
-  if (window.ytInitialPlayerResponse?.videoDetails?.videoId === currentVideoId) {
-    return window.ytInitialPlayerResponse;
+  return null;
+}
+
+async function readPlayerResponseFromDom() {
+  // On SPA navigation window.ytInitialPlayerResponse is updated asynchronously.
+  // Poll for up to 5 seconds for it to reflect the current video.
+  const POLL_INTERVAL_MS = 100;
+  const POLL_TIMEOUT_MS = 5000;
+  const deadline = Date.now() + POLL_TIMEOUT_MS;
+
+  while (true) {
+    const result = getPlayerResponseForCurrentVideo();
+
+    if (result) {
+      return result;
+    }
+
+    if (Date.now() >= deadline) {
+      break;
+    }
+
+    await new Promise((resolve) => window.setTimeout(resolve, POLL_INTERVAL_MS));
   }
 
   throw new Error("Could not read the YouTube player data from the page. Try refreshing.");
