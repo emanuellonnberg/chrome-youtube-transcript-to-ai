@@ -425,17 +425,19 @@ function scheduleInlineRender() {
 }
 
 async function handleInlineSend(root, presetId = null) {
-  const settings = normalizeSettings(await chrome.storage.sync.get(null));
-  const resolvedPresetId = presetId || settings.defaultPreset;
   const buttons = root.querySelectorAll(".ytta-button");
 
   root.dataset.busy = "true";
   buttons.forEach((button) => {
     button.disabled = true;
   });
-  setInlineStatus(root, `Collecting transcript for ${getPromptPresetLabel(resolvedPresetId)}...`);
 
   try {
+    const settings = normalizeSettings(await chrome.storage.sync.get(null));
+    const resolvedPresetId = presetId || settings.defaultPreset;
+
+    setInlineStatus(root, `Collecting transcript for ${getPromptPresetLabel(resolvedPresetId)}...`);
+
     const response = await chrome.runtime.sendMessage({
       type: "sendTranscriptToAi",
       presetId: resolvedPresetId
@@ -450,6 +452,11 @@ async function handleInlineSend(root, presetId = null) {
       `${getPromptPresetLabel(response.presetId || resolvedPresetId)} opened in ${prettifyTarget(response.target)}.`
     );
   } catch (error) {
+    if (error.message?.includes("Extension context invalidated")) {
+      // Extension was reloaded while this content script was alive; remove stale UI.
+      document.getElementById("ytta-inline-root")?.remove();
+      return;
+    }
     console.error("[YouTube Transcript to AI]", error);
     setInlineStatus(root, error.message || "Something went wrong.", true);
   } finally {
