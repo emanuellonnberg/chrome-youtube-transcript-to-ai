@@ -1,18 +1,8 @@
-const DEFAULT_SETTINGS = {
-  target: "chatgpt",
-  openMode: "new-tab",
-  autoSubmit: false,
-  promptTemplate: [
-    "Please work with the following YouTube transcript.",
-    "Video title: {{title}}",
-    "Video URL: {{url}}",
-    "",
-    "{{transcript}}"
-  ].join("\n")
-};
+const { getPromptPresetDefinitions, getPromptPresetLabel, normalizeSettings } = globalThis.YTTA_PROMPTS;
 
 const targetLabel = document.getElementById("targetLabel");
 const openModeLabel = document.getElementById("openModeLabel");
+const presetSelect = document.getElementById("presetSelect");
 const sendButton = document.getElementById("sendButton");
 const optionsButton = document.getElementById("optionsButton");
 const statusMessage = document.getElementById("statusMessage");
@@ -32,11 +22,23 @@ function prettifyOpenMode(openMode) {
   return openMode === "new-window" ? "New window" : "New tab";
 }
 
+function populatePresetOptions(selectedPreset) {
+  presetSelect.innerHTML = "";
+
+  for (const preset of getPromptPresetDefinitions()) {
+    const option = document.createElement("option");
+    option.value = preset.id;
+    option.textContent = preset.label;
+    option.selected = preset.id === selectedPreset;
+    presetSelect.appendChild(option);
+  }
+}
+
 async function loadSettings() {
-  const stored = await chrome.storage.sync.get(DEFAULT_SETTINGS);
-  const settings = { ...DEFAULT_SETTINGS, ...stored };
+  const settings = normalizeSettings(await chrome.storage.sync.get(null));
   targetLabel.textContent = prettifyTarget(settings.target);
   openModeLabel.textContent = prettifyOpenMode(settings.openMode);
+  populatePresetOptions(settings.defaultPreset);
   return settings;
 }
 
@@ -46,8 +48,10 @@ async function getActiveTab() {
 }
 
 async function handleSendClick() {
+  const presetId = presetSelect.value;
+
   sendButton.disabled = true;
-  setStatus("Collecting transcript...");
+  setStatus(`Collecting transcript for ${getPromptPresetLabel(presetId)}...`);
 
   try {
     const activeTab = await getActiveTab();
@@ -58,6 +62,7 @@ async function handleSendClick() {
 
     const response = await chrome.runtime.sendMessage({
       type: "sendTranscriptToAi",
+      presetId,
       tab: {
         id: activeTab.id,
         title: activeTab.title || "",
@@ -69,7 +74,9 @@ async function handleSendClick() {
       throw new Error(response?.error || "The transcript could not be sent.");
     }
 
-    setStatus(`Transcript opened in ${prettifyTarget(response.target)}.`);
+    setStatus(
+      `${getPromptPresetLabel(response.presetId || presetId)} opened in ${prettifyTarget(response.target)}.`
+    );
   } catch (error) {
     setStatus(error.message || "Something went wrong.", true);
   } finally {
@@ -83,4 +90,5 @@ optionsButton.addEventListener("click", () => chrome.runtime.openOptionsPage());
 loadSettings().catch(() => {
   targetLabel.textContent = "ChatGPT";
   openModeLabel.textContent = "New tab";
+  populatePresetOptions("short-summary");
 });

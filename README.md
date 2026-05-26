@@ -1,11 +1,13 @@
 # YouTube Transcript to AI
 
-Chrome extension that grabs the transcript from the current YouTube video and opens it in ChatGPT or Claude.
+Chrome extension that grabs the transcript from the current YouTube video and opens it in ChatGPT, Claude, or Gemini.
 
 ## Features
 
 - Pulls the transcript from the active `youtube.com/watch` page
-- Sends the transcript to either ChatGPT or Claude
+- Adds an inline YouTube page button so you can send the current video without opening the popup
+- Sends the transcript to ChatGPT, Claude, or Gemini
+- Supports prompt presets like short summary, detailed analysis, bullet takeaways, and custom
 - Lets you choose between opening a new tab or a new popup window
 - Supports a configurable prompt template with `{{title}}`, `{{url}}`, and `{{transcript}}`
 - Optional auto-submit after the prompt is inserted
@@ -21,18 +23,20 @@ Chrome extension that grabs the transcript from the current YouTube video and op
 
 1. Open the extension
 2. Click **Open settings**
-3. Choose ChatGPT or Claude
-4. Adjust the prompt template if needed
-5. Optionally enable auto-submit
+3. Choose ChatGPT, Claude, or Gemini
+4. Choose the default prompt preset
+5. Adjust the custom prompt template if needed
+6. Optionally enable auto-submit
 
 ## Use
 
 1. Open a YouTube video page
 2. Make sure captions are available for that video
-3. Click **Send current video transcript**
-4. Sign in to ChatGPT or Claude if the site asks for it
+3. Choose a preset in the popup, or use one of the inline preset buttons on the YouTube page
+4. Click **Send current video transcript**
+5. Sign in to ChatGPT, Claude, or Gemini if the site asks for it
 
 ## Notes
 
 - The extension needs transcript data to be available on the video
-- AI site layouts can change over time, so the input selectors may need updating if ChatGPT or Claude redesign their composer UI
+- AI site layouts can change over time, so the input selectors may need updating if ChatGPT, Claude, or Gemini redesign their composer UI

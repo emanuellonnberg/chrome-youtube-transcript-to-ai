@@ -1,13 +1,24 @@
-// Content script running inside the YouTube watch tab.
-// The background worker sends a "getTranscript" message here because:
-//   1. We can read ytInitialPlayerResponse directly from the DOM.
-//   2. fetch() here carries the user's cookies, satisfying YouTube's auth.
-//   3. We can extract the proof-of-origin token (pot) via performance timing.
+const {
+  getPromptPresetLabel,
+  getQuickPresetDefinitions,
+  normalizeSettings
+} = globalThis.YTTA_PROMPTS;
 
 const POT_POLL_INTERVAL_MS = 50;
-const POT_POLL_ATTEMPTS = 20; // ~1 second total
+const POT_POLL_ATTEMPTS = 20;
+const INLINE_ROOT_ID = "ytta-inline-actions";
+const INLINE_STYLE_ID = "ytta-inline-actions-style";
+const INLINE_RENDER_DELAY_MS = 150;
+const STATUS_HOLD_MS = 4000;
+const INLINE_ANCHOR_SELECTORS = [
+  "ytd-watch-metadata #owner",
+  "#above-the-fold #owner",
+  "ytd-watch-metadata #description",
+  "#above-the-fold ytd-watch-metadata"
+];
 
-// ----- Entry point -----
+let inlineRenderTimer = null;
+let lastKnownUrl = window.location.href;
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type !== "getTranscript") {
@@ -18,10 +29,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     .then((payload) => sendResponse({ ok: true, payload }))
     .catch((error) => sendResponse({ ok: false, error: error.message }));
 
-  return true; // keep the message channel open for async response
+  return true;
 });
-
-// ----- Transcript extraction -----
 
 async function extractTranscriptPayload() {
   const playerResponse = readPlayerResponseFromDom();
@@ -33,8 +42,8 @@ async function extractTranscriptPayload() {
   }
 
   const preferredTrack =
-    captionTracks.find((t) => t.languageCode?.startsWith("en") && t.kind !== "asr") ||
-    captionTracks.find((t) => t.kind !== "asr") ||
+    captionTracks.find((track) => track.languageCode?.startsWith("en") && track.kind !== "asr") ||
+    captionTracks.find((track) => track.kind !== "asr") ||
     captionTracks[0];
 
   if (!preferredTrack?.baseUrl) {
@@ -56,15 +65,20 @@ async function extractTranscriptPayload() {
   };
 }
 
-// ----- Read ytInitialPlayerResponse from the page DOM -----
-
 function readPlayerResponseFromDom() {
-  // Fastest path: the variable is on window (injected by YouTube)
-  if (window.ytInitialPlayerResponse) {
+  const currentVideoId = new URLSearchParams(window.location.search).get("v");
+
+  // Only trust window.ytInitialPlayerResponse if it matches the current video.
+  // On SPA navigation YouTube updates it asynchronously, so it may still hold
+  // the previous video's data when the user clicks the button on the new page.
+  if (
+    window.ytInitialPlayerResponse &&
+    (!currentVideoId || window.ytInitialPlayerResponse?.videoDetails?.videoId === currentVideoId)
+  ) {
     return window.ytInitialPlayerResponse;
   }
 
-  // Fallback: scrape it from the raw page HTML embedded in a script tag
+  // Fallback: scrape it from the inline script tag YouTube writes into the page HTML.
   const scripts = document.querySelectorAll("script");
 
   for (const script of scripts) {
@@ -76,22 +90,28 @@ function readPlayerResponseFromDom() {
 
     const match = text.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\});(?:\s*var\s|\s*window\.|$)/s);
 
-    if (match) {
-      try {
-        return JSON.parse(match[1]);
-      } catch {
-        // try next script tag
+    if (!match) {
+      continue;
+    }
+
+    try {
+      const parsed = JSON.parse(match[1]);
+
+      if (!currentVideoId || parsed?.videoDetails?.videoId === currentVideoId) {
+        return parsed;
       }
+    } catch {
+      continue;
     }
   }
 
-  throw new Error("Could not read the YouTube player data from the page.");
-}
+  // Last resort: the global may have just been updated by YT's SPA router.
+  if (window.ytInitialPlayerResponse?.videoDetails?.videoId === currentVideoId) {
+    return window.ytInitialPlayerResponse;
+  }
 
-// ----- Proof-of-origin token (pot) -----
-// YouTube requires &pot=<token> on the timedtext URL.
-// We get it by briefly toggling the CC button and watching the outgoing
-// /api/timedtext network request that the player fires.
+  throw new Error("Could not read the YouTube player data from the page. Try refreshing.");
+}
 
 const CC_BUTTON_SELECTORS = [
   "#movie_player > div.ytp-chrome-bottom > div.ytp-chrome-controls > div.ytp-right-controls > button.ytp-subtitles-button",
@@ -99,36 +119,45 @@ const CC_BUTTON_SELECTORS = [
 ];
 
 function findCcButton() {
-  for (const sel of CC_BUTTON_SELECTORS) {
-    const btn = document.querySelector(sel);
-    if (btn) return btn;
+  for (const selector of CC_BUTTON_SELECTORS) {
+    const button = document.querySelector(selector);
+
+    if (button) {
+      return button;
+    }
   }
+
   return null;
 }
 
 async function getPot() {
-  // Try reading a cached pot first (populated from a previous click)
   const cached = readPotFromPerformance();
-  if (cached) return cached;
 
-  const btn = findCcButton();
-  if (!btn) return "";
+  if (cached) {
+    return cached;
+  }
 
-  // Double-click trick: first click triggers the player to fetch the track,
-  // second click restores the original CC state.
+  const button = findCcButton();
+
+  if (!button) {
+    return "";
+  }
+
   try {
     performance.clearResourceTimings();
-    btn.click();
-    btn.click();
+    button.click();
+    button.click();
   } catch {
     return "";
   }
 
-  // Poll for the timedtext request to appear in performance entries
-  for (let i = 0; i < POT_POLL_ATTEMPTS; i++) {
+  for (let index = 0; index < POT_POLL_ATTEMPTS; index += 1) {
     await sleep(POT_POLL_INTERVAL_MS);
     const pot = readPotFromPerformance();
-    if (pot) return pot;
+
+    if (pot) {
+      return pot;
+    }
   }
 
   return "";
@@ -137,16 +166,21 @@ async function getPot() {
 function readPotFromPerformance() {
   const entries = performance.getEntriesByType("resource");
 
-  for (let i = entries.length - 1; i >= 0; i--) {
-    const entry = entries[i];
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
 
-    if (!entry.name.includes("/api/timedtext")) continue;
+    if (!entry.name.includes("/api/timedtext")) {
+      continue;
+    }
 
     try {
       const pot = new URL(entry.name).searchParams.get("pot");
-      if (pot) return pot;
+
+      if (pot) {
+        return pot;
+      }
     } catch {
-      // malformed URL, skip
+      continue;
     }
   }
 
@@ -157,11 +191,6 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// ----- Build the final timedtext URL -----
-// IMPORTANT: the baseUrl is a signed URL. Never rewrite it with `new URL()` +
-// searchParams — that reorders the query string and breaks the signature (404).
-// Instead, just append extra params as a plain string.
-
 function buildTranscriptUrl(baseUrl, pot) {
   if (pot) {
     return `${baseUrl}&pot=${encodeURIComponent(pot)}&c=WEB`;
@@ -169,8 +198,6 @@ function buildTranscriptUrl(baseUrl, pot) {
 
   return baseUrl;
 }
-
-// ----- Fetch and parse the transcript XML -----
 
 async function fetchTranscriptText(transcriptUrl) {
   const response = await fetch(transcriptUrl, { credentials: "include" });
@@ -212,3 +239,271 @@ function decodeHtmlEntities(text) {
     .replaceAll("&lt;", "<")
     .replaceAll("&gt;", ">");
 }
+
+function isWatchPage() {
+  return window.location.pathname === "/watch";
+}
+
+function prettifyTarget(target) {
+  if (target === "claude") {
+    return "Claude";
+  }
+
+  if (target === "gemini") {
+    return "Gemini";
+  }
+
+  return "ChatGPT";
+}
+
+function ensureInlineStyle() {
+  if (document.getElementById(INLINE_STYLE_ID)) {
+    return;
+  }
+
+  const style = document.createElement("style");
+  style.id = INLINE_STYLE_ID;
+  style.textContent = `
+    #${INLINE_ROOT_ID} {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      margin: 12px 0 16px;
+      padding: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    #${INLINE_ROOT_ID} .ytta-button {
+      border: 0;
+      border-radius: 999px;
+      padding: 10px 14px;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      color: #fff;
+    }
+
+    #${INLINE_ROOT_ID} .ytta-button:disabled {
+      opacity: 0.7;
+      cursor: wait;
+    }
+
+    #${INLINE_ROOT_ID} .ytta-quick-presets {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    #${INLINE_ROOT_ID} .ytta-primary {
+      background: #3b82f6;
+    }
+
+    #${INLINE_ROOT_ID} .ytta-secondary {
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    #${INLINE_ROOT_ID} .ytta-status {
+      font-size: 13px;
+      color: #93c5fd;
+      line-height: 1.4;
+    }
+
+    #${INLINE_ROOT_ID} .ytta-status[data-error="true"] {
+      color: #fca5a5;
+    }
+  `;
+
+  document.documentElement.appendChild(style);
+}
+
+function getInlineAnchor() {
+  for (const selector of INLINE_ANCHOR_SELECTORS) {
+    const anchor = document.querySelector(selector);
+
+    if (anchor) {
+      return anchor;
+    }
+  }
+
+  return null;
+}
+
+function createInlineRoot() {
+  const root = document.createElement("div");
+  root.id = INLINE_ROOT_ID;
+  root.innerHTML = `
+    <button class="ytta-button ytta-primary" type="button" data-role="default-send"></button>
+    <div class="ytta-quick-presets" data-role="quick-presets"></div>
+    <button class="ytta-button ytta-secondary" type="button" data-role="settings">Settings</button>
+    <span class="ytta-status" data-role="status"></span>
+  `;
+
+  root.querySelector('[data-role="default-send"]').addEventListener("click", () => {
+    void handleInlineSend(root);
+  });
+
+  root.querySelector('[data-role="settings"]').addEventListener("click", () => {
+    window.open(chrome.runtime.getURL("options.html"), "_blank", "noopener,noreferrer");
+  });
+
+  return root;
+}
+
+function setInlineStatus(root, message, isError = false) {
+  const status = root.querySelector('[data-role="status"]');
+  status.textContent = message;
+  status.dataset.error = isError ? "true" : "false";
+}
+
+async function renderInlineActions() {
+  if (!isWatchPage()) {
+    document.getElementById(INLINE_ROOT_ID)?.remove();
+    return;
+  }
+
+  const anchor = getInlineAnchor();
+
+  if (!anchor) {
+    return;
+  }
+
+  ensureInlineStyle();
+
+  const settings = normalizeSettings(await chrome.storage.sync.get(null));
+  const targetLabel = prettifyTarget(settings.target);
+  const root = document.getElementById(INLINE_ROOT_ID) || createInlineRoot();
+  const sendButton = root.querySelector('[data-role="default-send"]');
+  const quickPresetContainer = root.querySelector('[data-role="quick-presets"]');
+
+  if (anchor.id === "owner") {
+    if (anchor.nextElementSibling !== root) {
+      anchor.insertAdjacentElement("afterend", root);
+    }
+  } else if (!root.parentElement || root.parentElement !== anchor) {
+    anchor.prepend(root);
+  }
+
+  sendButton.textContent = `${getPromptPresetLabel(settings.defaultPreset)} -> ${targetLabel}`;
+  quickPresetContainer.innerHTML = "";
+
+  for (const preset of getQuickPresetDefinitions()) {
+    if (preset.id === settings.defaultPreset) {
+      continue;
+    }
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ytta-button ytta-secondary";
+    button.textContent = preset.label;
+    button.addEventListener("click", () => {
+      void handleInlineSend(root, preset.id);
+    });
+    quickPresetContainer.appendChild(button);
+  }
+
+  if (!root.dataset.busy && !root.dataset.holdStatus) {
+    setInlineStatus(
+      root,
+      `Default preset: ${getPromptPresetLabel(settings.defaultPreset)}. Target: ${targetLabel}.`
+    );
+  }
+}
+
+function scheduleInlineRender() {
+  if (inlineRenderTimer) {
+    clearTimeout(inlineRenderTimer);
+  }
+
+  inlineRenderTimer = window.setTimeout(() => {
+    inlineRenderTimer = null;
+    void renderInlineActions();
+  }, INLINE_RENDER_DELAY_MS);
+}
+
+async function handleInlineSend(root, presetId = null) {
+  const settings = normalizeSettings(await chrome.storage.sync.get(null));
+  const resolvedPresetId = presetId || settings.defaultPreset;
+  const buttons = root.querySelectorAll(".ytta-button");
+
+  root.dataset.busy = "true";
+  buttons.forEach((button) => {
+    button.disabled = true;
+  });
+  setInlineStatus(root, `Collecting transcript for ${getPromptPresetLabel(resolvedPresetId)}...`);
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "sendTranscriptToAi",
+      presetId: resolvedPresetId
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || "The transcript could not be sent.");
+    }
+
+    setInlineStatus(
+      root,
+      `${getPromptPresetLabel(response.presetId || resolvedPresetId)} opened in ${prettifyTarget(response.target)}.`
+    );
+  } catch (error) {
+    console.error("[YouTube Transcript to AI]", error);
+    setInlineStatus(root, error.message || "Something went wrong.", true);
+  } finally {
+    delete root.dataset.busy;
+    buttons.forEach((button) => {
+      button.disabled = false;
+    });
+    // Hold the result message for a moment before the next idle render overwrites it.
+    root.dataset.holdStatus = "true";
+    window.setTimeout(() => {
+      delete root.dataset.holdStatus;
+      scheduleInlineRender();
+    }, STATUS_HOLD_MS);
+  }
+}
+
+function handlePotentialNavigationChange() {
+  if (lastKnownUrl !== window.location.href) {
+    lastKnownUrl = window.location.href;
+  }
+
+  scheduleInlineRender();
+}
+
+function startInlineUi() {
+  scheduleInlineRender();
+
+  const observer = new MutationObserver(() => {
+    handlePotentialNavigationChange();
+  });
+
+  observer.observe(document.documentElement, {
+    childList: true,
+    subtree: true
+  });
+
+  window.addEventListener("yt-navigate-finish", scheduleInlineRender);
+  window.addEventListener("yt-page-data-updated", scheduleInlineRender);
+
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== "sync") {
+      return;
+    }
+
+    if (
+      changes.target ||
+      changes.openMode ||
+      changes.autoSubmit ||
+      changes.promptTemplate ||
+      changes.defaultPreset
+    ) {
+      scheduleInlineRender();
+    }
+  });
+}
+
+startInlineUi();

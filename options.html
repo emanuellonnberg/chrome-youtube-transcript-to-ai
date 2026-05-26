@@ -29,15 +29,25 @@
           </select>
         </label>
 
+        <label class="field">
+          <span>Default prompt preset</span>
+          <select id="defaultPreset" name="defaultPreset"></select>
+        </label>
+
         <label class="field checkbox">
           <input id="autoSubmit" name="autoSubmit" type="checkbox">
           <span>Auto-submit after inserting the transcript</span>
         </label>
 
         <label class="field">
-          <span>Prompt template</span>
+          <span>Custom preset template</span>
           <textarea id="promptTemplate" name="promptTemplate" rows="14"></textarea>
         </label>
+
+        <div class="help">
+          <strong>Preset behavior</strong>
+          <p>The custom template below is used when the selected preset is <strong>Custom</strong>.</p>
+        </div>
 
         <div class="help">
           <strong>Available placeholders</strong>
@@ -55,6 +65,7 @@
       </form>
     </main>
 
+    <script src="scripts/prompt-presets.js"></script>
     <script src="options.js"></script>
   </body>
   </html>

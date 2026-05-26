@@ -20,6 +20,10 @@
           <span class="label">Open mode</span>
           <span id="openModeLabel" class="value">Loading...</span>
         </div>
+        <label class="field">
+          <span class="label">Prompt preset</span>
+          <select id="presetSelect"></select>
+        </label>
       </section>
 
       <button id="sendButton" type="button">Send current video transcript</button>
@@ -28,6 +32,7 @@
       <p id="statusMessage" class="status" role="status" aria-live="polite"></p>
     </main>
 
+    <script src="scripts/prompt-presets.js"></script>
     <script src="popup.js"></script>
   </body>
   </html>

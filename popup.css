@@ -43,14 +43,38 @@ h1 {
   margin-top: 8px;
 }
 
+.field {
+  display: block;
+  margin-top: 12px;
+}
+
 .label {
   color: #cbd5e1;
   font-size: 13px;
 }
 
+.field .label {
+  display: block;
+  margin-bottom: 8px;
+}
+
 .value {
   font-size: 13px;
   font-weight: 700;
+}
+
+select,
+button {
+  font: inherit;
+}
+
+select {
+  width: 100%;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #0f172a;
+  color: #f9fafb;
 }
 
 button {

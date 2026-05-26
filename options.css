@@ -72,6 +72,10 @@ textarea {
   color: #cbd5e1;
 }
 
+.help p {
+  margin: 8px 0 0;
+}
+
 .help code {
   display: inline-block;
   margin: 8px 8px 0 0;
