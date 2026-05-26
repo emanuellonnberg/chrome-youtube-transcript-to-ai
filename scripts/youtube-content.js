@@ -33,7 +33,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 async function extractTranscriptPayload() {
-  const playerResponse = await readPlayerResponseFromDom();
+  const playerResponse = await readPlayerResponseForCurrentVideo();
   const captionTracks =
     playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
 
@@ -65,67 +65,133 @@ async function extractTranscriptPayload() {
   };
 }
 
-function getPlayerResponseForCurrentVideo() {
-  const currentVideoId = new URLSearchParams(window.location.search).get("v");
-  const global = window.ytInitialPlayerResponse;
+function getCurrentVideoId() {
+  return new URLSearchParams(window.location.search).get("v");
+}
 
-  if (global && (!currentVideoId || global.videoDetails?.videoId === currentVideoId)) {
-    return global;
-  }
+function extractBalancedJson(text, startIndex) {
+  let depth = 0;
+  let started = false;
+  let inString = false;
+  let isEscaped = false;
 
-  // On SPA navigation the inline script tags are NOT re-written, so only check
-  // them on a fresh page load (when the global is absent or matches the first video).
-  const scripts = document.querySelectorAll("script");
+  for (let index = startIndex; index < text.length; index += 1) {
+    const char = text[index];
 
-  for (const script of scripts) {
-    const text = script.textContent || "";
-
-    if (!text.includes("ytInitialPlayerResponse")) {
-      continue;
-    }
-
-    const match = text.match(/ytInitialPlayerResponse\s*=\s*(\{.+?\});(?:\s*var\s|\s*window\.|$)/s);
-
-    if (!match) {
-      continue;
-    }
-
-    try {
-      const parsed = JSON.parse(match[1]);
-
-      if (!currentVideoId || parsed?.videoDetails?.videoId === currentVideoId) {
-        return parsed;
+    if (inString) {
+      if (isEscaped) {
+        isEscaped = false;
+        continue;
       }
-    } catch {
+
+      if (char === "\\") {
+        isEscaped = true;
+        continue;
+      }
+
+      if (char === "\"") {
+        inString = false;
+      }
+
       continue;
+    }
+
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+
+    if (char === "{") {
+      started = true;
+      depth += 1;
+      continue;
+    }
+
+    if (char === "}") {
+      depth -= 1;
+
+      if (started && depth === 0) {
+        return text.slice(startIndex, index + 1);
+      }
     }
   }
 
   return null;
 }
 
-async function readPlayerResponseFromDom() {
-  // On SPA navigation window.ytInitialPlayerResponse is updated asynchronously.
-  // Poll for up to 5 seconds for it to reflect the current video.
-  const POLL_INTERVAL_MS = 100;
-  const POLL_TIMEOUT_MS = 5000;
-  const deadline = Date.now() + POLL_TIMEOUT_MS;
+function parsePlayerResponseFromText(text) {
+  const patterns = [
+    /var ytInitialPlayerResponse\s*=\s*/g,
+    /window\["ytInitialPlayerResponse"\]\s*=\s*/g,
+    /"ytInitialPlayerResponse"\s*:\s*/g
+  ];
 
-  while (true) {
-    const result = getPlayerResponseForCurrentVideo();
+  for (const pattern of patterns) {
+    pattern.lastIndex = 0;
+    let match;
 
-    if (result) {
-      return result;
+    while ((match = pattern.exec(text)) !== null) {
+      const jsonText = extractBalancedJson(text, match.index + match[0].length);
+
+      if (!jsonText) {
+        continue;
+      }
+
+      try {
+        return JSON.parse(jsonText);
+      } catch {
+        continue;
+      }
     }
-
-    if (Date.now() >= deadline) {
-      break;
-    }
-
-    await new Promise((resolve) => window.setTimeout(resolve, POLL_INTERVAL_MS));
   }
 
-  throw new Error("Could not read the YouTube player data from the page. Try refreshing.");
+  return null;
+}
+
+async function fetchWatchPagePlayerResponse(videoId) {
+  const response = await fetch(`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`, {
+    credentials: "include"
+  });
+
+  if (!response.ok) {
+    throw new Error(`The YouTube watch page could not be loaded (HTTP ${response.status}).`);
+  }
+
+  const html = await response.text();
+
+  if (!html || html.trim() === "") {
+    throw new Error("The YouTube watch page response was empty.");
+  }
+
+  const playerResponse = parsePlayerResponseFromText(html);
+
+  if (playerResponse?.videoDetails?.videoId === videoId) {
+    return playerResponse;
+  }
+
+  return null;
+}
+
+async function readPlayerResponseForCurrentVideo() {
+  const currentVideoId = getCurrentVideoId();
+
+  if (!currentVideoId) {
+    throw new Error("Could not determine the current YouTube video.");
+  }
+
+  const global = window.ytInitialPlayerResponse;
+
+  if (global?.videoDetails?.videoId === currentVideoId) {
+    return global;
+  }
+
+  const playerResponse = await fetchWatchPagePlayerResponse(currentVideoId);
+
+  if (playerResponse) {
+    return playerResponse;
+  }
+
+  throw new Error("Could not read the YouTube player data for the current video.");
 }
 
 const CC_BUTTON_SELECTORS = [
