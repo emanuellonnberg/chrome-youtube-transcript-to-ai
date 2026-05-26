@@ -377,7 +377,7 @@ async function renderInlineActions() {
   try {
     settings = normalizeSettings(await chrome.storage.sync.get(null));
   } catch (error) {
-    if (error.message?.includes("Extension context invalidated")) {
+    if (isContextInvalidated(error)) {
       document.getElementById(INLINE_ROOT_ID)?.remove();
       return;
     }
@@ -422,6 +422,10 @@ async function renderInlineActions() {
   }
 }
 
+function isContextInvalidated(error) {
+  return error?.message?.includes("Extension context invalidated");
+}
+
 function scheduleInlineRender() {
   if (inlineRenderTimer) {
     clearTimeout(inlineRenderTimer);
@@ -429,7 +433,13 @@ function scheduleInlineRender() {
 
   inlineRenderTimer = window.setTimeout(() => {
     inlineRenderTimer = null;
-    void renderInlineActions();
+    renderInlineActions().catch((error) => {
+      if (isContextInvalidated(error)) {
+        document.getElementById(INLINE_ROOT_ID)?.remove();
+        return;
+      }
+      console.error("[YouTube Transcript to AI]", error);
+    });
   }, INLINE_RENDER_DELAY_MS);
 }
 
@@ -461,9 +471,9 @@ async function handleInlineSend(root, presetId = null) {
       `${getPromptPresetLabel(response.presetId || resolvedPresetId)} opened in ${prettifyTarget(response.target)}.`
     );
   } catch (error) {
-    if (error.message?.includes("Extension context invalidated")) {
+    if (isContextInvalidated(error)) {
       // Extension was reloaded while this content script was alive; remove stale UI.
-      document.getElementById("ytta-inline-root")?.remove();
+      document.getElementById(INLINE_ROOT_ID)?.remove();
       return;
     }
     console.error("[YouTube Transcript to AI]", error);
