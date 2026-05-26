@@ -373,7 +373,16 @@ async function renderInlineActions() {
 
   ensureInlineStyle();
 
-  const settings = normalizeSettings(await chrome.storage.sync.get(null));
+  let settings;
+  try {
+    settings = normalizeSettings(await chrome.storage.sync.get(null));
+  } catch (error) {
+    if (error.message?.includes("Extension context invalidated")) {
+      document.getElementById(INLINE_ROOT_ID)?.remove();
+      return;
+    }
+    throw error;
+  }
   const targetLabel = prettifyTarget(settings.target);
   const root = document.getElementById(INLINE_ROOT_ID) || createInlineRoot();
   const sendButton = root.querySelector('[data-role="default-send"]');
@@ -460,16 +469,18 @@ async function handleInlineSend(root, presetId = null) {
     console.error("[YouTube Transcript to AI]", error);
     setInlineStatus(root, error.message || "Something went wrong.", true);
   } finally {
-    delete root.dataset.busy;
-    buttons.forEach((button) => {
-      button.disabled = false;
-    });
-    // Hold the result message for a moment before the next idle render overwrites it.
-    root.dataset.holdStatus = "true";
-    window.setTimeout(() => {
-      delete root.dataset.holdStatus;
-      scheduleInlineRender();
-    }, STATUS_HOLD_MS);
+    // Skip DOM/Chrome work if context was invalidated (root already removed).
+    if (document.getElementById("ytta-inline-root")) {
+      delete root.dataset.busy;
+      buttons.forEach((button) => {
+        button.disabled = false;
+      });
+      root.dataset.holdStatus = "true";
+      window.setTimeout(() => {
+        delete root.dataset.holdStatus;
+        scheduleInlineRender();
+      }, STATUS_HOLD_MS);
+    }
   }
 }
 
