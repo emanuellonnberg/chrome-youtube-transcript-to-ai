@@ -378,6 +378,12 @@ function markInlineUiLoading(root) {
   delete root.dataset.busy;
   root.dataset.loading = "true";
   setInlineActionButtonsDisabled(root, true);
+  const sendButton = root.querySelector('[data-role="default-send"]');
+
+  if (sendButton) {
+    sendButton.textContent = "Preparing...";
+  }
+
   setInlineStatus(root, "Loading video details... buttons will be ready in a moment.");
 }
 
@@ -491,6 +497,19 @@ function createInlineRoot() {
   return root;
 }
 
+function mountInlineRoot(anchor, root) {
+  if (anchor.id === "owner") {
+    if (anchor.nextElementSibling !== root) {
+      anchor.insertAdjacentElement("afterend", root);
+    }
+    return;
+  }
+
+  if (!root.parentElement || root.parentElement !== anchor) {
+    anchor.prepend(root);
+  }
+}
+
 function setInlineStatus(root, message, isError = false) {
   const status = root.querySelector('[data-role="status"]');
   status.textContent = message;
@@ -515,6 +534,9 @@ async function renderInlineActions() {
   }
 
   ensureInlineStyle();
+  const root = document.getElementById(INLINE_ROOT_ID) || createInlineRoot();
+  mountInlineRoot(anchor, root);
+  markInlineUiLoading(root);
 
   let settings;
   try {
@@ -527,17 +549,8 @@ async function renderInlineActions() {
     throw error;
   }
   const targetLabel = prettifyTarget(settings.target);
-  const root = document.getElementById(INLINE_ROOT_ID) || createInlineRoot();
   const sendButton = root.querySelector('[data-role="default-send"]');
   const quickPresetContainer = root.querySelector('[data-role="quick-presets"]');
-
-  if (anchor.id === "owner") {
-    if (anchor.nextElementSibling !== root) {
-      anchor.insertAdjacentElement("afterend", root);
-    }
-  } else if (!root.parentElement || root.parentElement !== anchor) {
-    anchor.prepend(root);
-  }
 
   sendButton.textContent = `${getPromptPresetLabel(settings.defaultPreset)} -> ${targetLabel}`;
   quickPresetContainer.innerHTML = "";
@@ -691,8 +704,8 @@ function startInlineUi() {
     subtree: true
   });
 
-  window.addEventListener("yt-navigate-finish", scheduleInlineRender);
-  window.addEventListener("yt-page-data-updated", scheduleInlineRender);
+  window.addEventListener("yt-navigate-finish", handlePotentialNavigationChange);
+  window.addEventListener("yt-page-data-updated", handlePotentialNavigationChange);
 
   if (hasExtensionContext()) {
     chrome.storage.onChanged.addListener((changes, areaName) => {
