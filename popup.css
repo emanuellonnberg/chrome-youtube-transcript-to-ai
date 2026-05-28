@@ -95,9 +95,141 @@ button.secondary {
   border: 1px solid #334155;
 }
 
+button.compact {
+  width: auto;
+  margin-top: 0;
+  padding: 10px 12px;
+  white-space: nowrap;
+}
+
 button:disabled {
   opacity: 0.65;
   cursor: wait;
+}
+
+.history {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.historyHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.historyToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.historyHeader h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.historySubtle {
+  margin: 6px 0 0;
+}
+
+.historyEmpty {
+  margin: 12px 0 0;
+}
+
+.historyList {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.historyItem {
+  padding: 12px;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.85);
+}
+
+.historyItemHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.historyCheckbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #cbd5e1;
+  font-size: 12px;
+}
+
+.historyCheckbox input {
+  margin: 0;
+}
+
+.historyTitle {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.historyMeta {
+  margin: 6px 0 0;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.historyPinned {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.18);
+  color: #bfdbfe;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.historyExcerpt {
+  margin: 10px 0 0;
+  color: #e2e8f0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.historyActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.historyActions button {
+  width: auto;
+  padding: 9px 12px;
+  font-size: 12px;
+}
+
+@media (max-width: 420px) {
+  .historyHeader {
+    flex-direction: column;
+  }
+
+  .historyToolbar {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .historyToolbar button,
+  .historyActions button {
+    flex: 1 1 0;
+  }
 }
 
 .status {

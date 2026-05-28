@@ -29,10 +29,28 @@
       <button id="sendButton" type="button">Send current video transcript</button>
       <button id="optionsButton" class="secondary" type="button">Open settings</button>
 
+      <section class="history">
+        <div class="historyHeader">
+          <div>
+            <h2>Saved transcripts</h2>
+            <p class="subtle historySubtle">Reuse a transcript later, pin important ones, or compare two saved videos side by side.</p>
+          </div>
+          <div class="historyToolbar">
+            <button id="compareButton" class="secondary compact" type="button" disabled>Compare selected</button>
+            <button id="clearHistoryButton" class="secondary compact" type="button" disabled>Clear unpinned</button>
+          </div>
+        </div>
+
+        <p id="historyEmptyState" class="subtle historyEmpty">No transcripts saved yet. Pinned transcripts stay above the rolling recent list.</p>
+        <div id="historyList" class="historyList"></div>
+      </section>
+
       <p id="statusMessage" class="status" role="status" aria-live="polite"></p>
     </main>
 
     <script src="scripts/prompt-presets.js"></script>
+    <script src="scripts/history-store.js"></script>
+    <script src="scripts/export-utils.js"></script>
     <script src="popup.js"></script>
   </body>
   </html>

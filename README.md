@@ -7,6 +7,11 @@ Chrome extension that grabs the transcript from the current YouTube video and op
 - Pulls the transcript from the active `youtube.com/watch` page
 - Adds an inline YouTube page button so you can send the current video without opening the popup
 - Sends the transcript to ChatGPT, Claude, or Gemini
+- Saves a recent transcript history so you can reuse a transcript later
+- Lets you pin important transcripts so they stay beyond the rolling recent-history cap
+- Lets you delete individual saved transcripts or clear all unpinned ones
+- Lets you compare two saved transcripts in a single AI prompt
+- Lets you export any saved transcript as a markdown file
 - Supports prompt presets like short summary, detailed analysis, bullet takeaways, and custom
 - Lets you choose between opening a new tab or a new popup window
 - Supports a configurable prompt template with `{{title}}`, `{{url}}`, and `{{transcript}}`
@@ -35,6 +40,15 @@ Chrome extension that grabs the transcript from the current YouTube video and op
 3. Choose a preset in the popup, or use one of the inline preset buttons on the YouTube page
 4. Click **Send current video transcript**
 5. Sign in to ChatGPT, Claude, or Gemini if the site asks for it
+6. Reopen the popup later to resend a saved transcript, pin it, delete it, export it, clear unpinned history, or compare two saved transcripts
+
+## Development
+
+Run the small unit test harness for history retention and pinning logic:
+
+```bash
+npm test
+```
 
 ## Notes
 

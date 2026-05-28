@@ -1,0 +1,7 @@
+{
+  "name": "chrome-youtube-transcript-to-ai",
+  "private": true,
+  "scripts": {
+    "test": "node --test"
+  }
+}
