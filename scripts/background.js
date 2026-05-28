@@ -4,13 +4,16 @@ const { DEFAULT_SETTINGS, normalizeSettings, resolvePromptTemplate } = globalThi
 
 const AI_TARGETS = {
   chatgpt: {
-    url: "https://chatgpt.com/"
+    url: "https://chatgpt.com/",
+    matchPatterns: ["https://chatgpt.com/*", "https://chat.openai.com/*"]
   },
   claude: {
-    url: "https://claude.ai/new"
+    url: "https://claude.ai/new",
+    matchPatterns: ["https://claude.ai/*"]
   },
   gemini: {
-    url: "https://gemini.google.com/app"
+    url: "https://gemini.google.com/app",
+    matchPatterns: ["https://gemini.google.com/*"]
   }
 };
 
@@ -97,6 +100,18 @@ async function openAiSurface(target, openMode) {
     throw new Error("Unsupported AI target configured.");
   }
 
+  const existingTab = await findExistingAiTab(aiTarget.matchPatterns);
+
+  if (existingTab?.id) {
+    await chrome.tabs.update(existingTab.id, { active: true });
+
+    if (existingTab.windowId) {
+      await chrome.windows.update(existingTab.windowId, { focused: true });
+    }
+
+    return;
+  }
+
   if (openMode === "new-window") {
     await chrome.windows.create({
       url: aiTarget.url,
@@ -112,6 +127,16 @@ async function openAiSurface(target, openMode) {
     url: aiTarget.url,
     active: true
   });
+}
+
+async function findExistingAiTab(matchPatterns) {
+  const tabs = await chrome.tabs.query({ url: matchPatterns });
+
+  if (!tabs.length) {
+    return null;
+  }
+
+  return tabs.find((tab) => tab.active) || tabs[0];
 }
 
 function buildPrompt(template, payload) {

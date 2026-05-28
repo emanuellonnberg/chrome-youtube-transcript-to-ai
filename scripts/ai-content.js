@@ -1,7 +1,8 @@
 const PENDING_PROMPT_KEY = "pendingPrompt";
-const POLL_INTERVAL_MS = 1500;
+const POLL_INTERVAL_MS = 300;
 const EXPIRY_MS = 45000;
 let lastHandledPromptId = null;
+let pollTimer = null;
 
 const TARGET_BY_HOST = {
   "chatgpt.com": "chatgpt",
@@ -162,6 +163,8 @@ async function tryHandlePrompt(pendingPrompt) {
 }
 
 async function pollForPrompt(deadline) {
+  pollTimer = null;
+
   if (Date.now() > deadline) {
     return;
   }
@@ -173,7 +176,15 @@ async function pollForPrompt(deadline) {
     return;
   }
 
-  window.setTimeout(() => pollForPrompt(deadline), POLL_INTERVAL_MS);
+  schedulePromptPoll(deadline);
+}
+
+function schedulePromptPoll(deadline) {
+  if (pollTimer !== null) {
+    return;
+  }
+
+  pollTimer = window.setTimeout(() => pollForPrompt(deadline), POLL_INTERVAL_MS);
 }
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -181,7 +192,13 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     return;
   }
 
-  void tryHandlePrompt(changes[PENDING_PROMPT_KEY].newValue);
+  const deadline = Date.now() + EXPIRY_MS;
+
+  void tryHandlePrompt(changes[PENDING_PROMPT_KEY].newValue).then((handled) => {
+    if (!handled) {
+      schedulePromptPoll(deadline);
+    }
+  });
 });
 
 void pollForPrompt(Date.now() + EXPIRY_MS);
