@@ -19,8 +19,9 @@ const INLINE_ANCHOR_SELECTORS = [
 ];
 
 let inlineRenderTimer = null;
+let inlineReadyTimer = null;
+let inlineIsLoading = false;
 let lastKnownUrl = window.location.href;
-let lastInlineNavigationAt = Date.now();
 
 if (hasExtensionContext()) {
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -369,8 +370,18 @@ function setInlineActionButtonsDisabled(root, disabled) {
   });
 }
 
-function getInlineReadyDelayRemaining() {
-  return Math.max(0, INLINE_READY_DELAY_MS - (Date.now() - lastInlineNavigationAt));
+function startInlineLoadingState() {
+  inlineIsLoading = true;
+
+  if (inlineReadyTimer) {
+    clearTimeout(inlineReadyTimer);
+  }
+
+  inlineReadyTimer = window.setTimeout(() => {
+    inlineReadyTimer = null;
+    inlineIsLoading = false;
+    scheduleInlineRender();
+  }, INLINE_READY_DELAY_MS);
 }
 
 function markInlineUiLoading(root) {
@@ -570,11 +581,8 @@ async function renderInlineActions() {
     quickPresetContainer.appendChild(button);
   }
 
-  const readyDelayRemaining = getInlineReadyDelayRemaining();
-
-  if (readyDelayRemaining > 0) {
+  if (inlineIsLoading) {
     markInlineUiLoading(root);
-    scheduleInlineRender(readyDelayRemaining);
     return;
   }
 
@@ -658,7 +666,7 @@ async function handleInlineSend(root, presetId = null) {
     setInlineStatus(root, error.message || "Something went wrong.", true);
   } finally {
     // Skip DOM/Chrome work if context was invalidated (root already removed).
-    if (document.getElementById("ytta-inline-root")) {
+    if (document.getElementById(INLINE_ROOT_ID)) {
       delete root.dataset.busy;
       buttons.forEach((button) => {
         button.disabled = false;
@@ -675,7 +683,7 @@ async function handleInlineSend(root, presetId = null) {
 function handlePotentialNavigationChange() {
   if (lastKnownUrl !== window.location.href) {
     lastKnownUrl = window.location.href;
-    lastInlineNavigationAt = Date.now();
+    startInlineLoadingState();
     const root = document.getElementById(INLINE_ROOT_ID);
 
     if (root) {
@@ -692,7 +700,7 @@ function startInlineUi() {
     return;
   }
 
-  lastInlineNavigationAt = Date.now();
+  startInlineLoadingState();
   scheduleInlineRender();
 
   const observer = new MutationObserver(() => {
