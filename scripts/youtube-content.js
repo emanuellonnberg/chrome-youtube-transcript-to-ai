@@ -9,6 +9,7 @@ const POT_POLL_ATTEMPTS = 20;
 const INLINE_ROOT_ID = "ytta-inline-actions";
 const INLINE_STYLE_ID = "ytta-inline-actions-style";
 const INLINE_RENDER_DELAY_MS = 150;
+const INLINE_READY_DELAY_MS = 1200;
 const STATUS_HOLD_MS = 4000;
 const INLINE_ANCHOR_SELECTORS = [
   "ytd-watch-metadata #owner",
@@ -19,6 +20,7 @@ const INLINE_ANCHOR_SELECTORS = [
 
 let inlineRenderTimer = null;
 let lastKnownUrl = window.location.href;
+let lastInlineNavigationAt = Date.now();
 
 if (hasExtensionContext()) {
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -357,6 +359,28 @@ function teardownInlineUi() {
   document.getElementById(INLINE_STYLE_ID)?.remove();
 }
 
+function getInlineActionButtons(root) {
+  return root.querySelectorAll(".ytta-button:not([data-role='settings'])");
+}
+
+function setInlineActionButtonsDisabled(root, disabled) {
+  getInlineActionButtons(root).forEach((button) => {
+    button.disabled = disabled;
+  });
+}
+
+function getInlineReadyDelayRemaining() {
+  return Math.max(0, INLINE_READY_DELAY_MS - (Date.now() - lastInlineNavigationAt));
+}
+
+function markInlineUiLoading(root) {
+  delete root.dataset.holdStatus;
+  delete root.dataset.busy;
+  root.dataset.loading = "true";
+  setInlineActionButtonsDisabled(root, true);
+  setInlineStatus(root, "Loading video details... buttons will be ready in a moment.");
+}
+
 function ensureInlineStyle() {
   if (document.getElementById(INLINE_STYLE_ID)) {
     return;
@@ -533,6 +557,17 @@ async function renderInlineActions() {
     quickPresetContainer.appendChild(button);
   }
 
+  const readyDelayRemaining = getInlineReadyDelayRemaining();
+
+  if (readyDelayRemaining > 0) {
+    markInlineUiLoading(root);
+    scheduleInlineRender(readyDelayRemaining);
+    return;
+  }
+
+  delete root.dataset.loading;
+  setInlineActionButtonsDisabled(root, false);
+
   if (!root.dataset.busy && !root.dataset.holdStatus) {
     setInlineStatus(
       root,
@@ -545,7 +580,7 @@ function isContextInvalidated(error) {
   return error?.message?.includes("Extension context invalidated");
 }
 
-function scheduleInlineRender() {
+function scheduleInlineRender(delayMs = INLINE_RENDER_DELAY_MS) {
   if (inlineRenderTimer) {
     clearTimeout(inlineRenderTimer);
   }
@@ -565,7 +600,7 @@ function scheduleInlineRender() {
       }
       console.error("[YouTube Transcript to AI]", error);
     });
-  }, INLINE_RENDER_DELAY_MS);
+  }, delayMs);
 }
 
 async function handleInlineSend(root, presetId = null) {
@@ -627,6 +662,12 @@ async function handleInlineSend(root, presetId = null) {
 function handlePotentialNavigationChange() {
   if (lastKnownUrl !== window.location.href) {
     lastKnownUrl = window.location.href;
+    lastInlineNavigationAt = Date.now();
+    const root = document.getElementById(INLINE_ROOT_ID);
+
+    if (root) {
+      markInlineUiLoading(root);
+    }
   }
 
   scheduleInlineRender();
@@ -638,6 +679,7 @@ function startInlineUi() {
     return;
   }
 
+  lastInlineNavigationAt = Date.now();
   scheduleInlineRender();
 
   const observer = new MutationObserver(() => {
