@@ -547,7 +547,13 @@ async function renderInlineActions() {
   ensureInlineStyle();
   const root = document.getElementById(INLINE_ROOT_ID) || createInlineRoot();
   mountInlineRoot(anchor, root);
-  markInlineUiLoading(root);
+
+  // Show loading state immediately and bail out — a separate timer (inlineReadyTimer)
+  // will flip inlineIsLoading to false and trigger the final ready render.
+  if (inlineIsLoading) {
+    markInlineUiLoading(root);
+    return;
+  }
 
   let settings;
   try {
@@ -559,6 +565,13 @@ async function renderInlineActions() {
     }
     throw error;
   }
+
+  // Re-check after the async gap — a navigation may have started loading again.
+  if (inlineIsLoading) {
+    markInlineUiLoading(root);
+    return;
+  }
+
   const targetLabel = prettifyTarget(settings.target);
   const sendButton = root.querySelector('[data-role="default-send"]');
   const quickPresetContainer = root.querySelector('[data-role="quick-presets"]');
@@ -579,11 +592,6 @@ async function renderInlineActions() {
       void handleInlineSend(root, preset.id);
     });
     quickPresetContainer.appendChild(button);
-  }
-
-  if (inlineIsLoading) {
-    markInlineUiLoading(root);
-    return;
   }
 
   delete root.dataset.loading;
