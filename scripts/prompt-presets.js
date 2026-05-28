@@ -106,6 +106,7 @@
   const DEFAULT_SETTINGS = {
     target: "chatgpt",
     openMode: "new-tab",
+    reuseExistingChat: false,
     autoSubmit: false,
     defaultPreset: "short-summary",
     promptTemplate: PRESET_MAP.custom.template
@@ -123,6 +124,7 @@
     return {
       ...DEFAULT_SETTINGS,
       ...stored,
+      reuseExistingChat: Boolean(stored.reuseExistingChat),
       defaultPreset,
       promptTemplate
     };

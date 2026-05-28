@@ -31,6 +31,11 @@ chrome.runtime.onInstalled.addListener(async () => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === "getCurrentTabId") {
+    sendResponse({ ok: true, tabId: sender.tab?.id || null });
+    return false;
+  }
+
   if (message?.type !== "sendTranscriptToAi") {
     return false;
   }
@@ -76,57 +81,69 @@ async function handleSendTranscript(tab, requestedPresetId) {
 
   const presetId = requestedPresetId || settings.defaultPreset;
   const prompt = buildPrompt(resolvePromptTemplate(settings, presetId), response.payload);
+  const aiSurface = await openAiSurface(settings.target, settings.openMode, settings.reuseExistingChat);
 
   await chrome.storage.local.set({
     [PENDING_PROMPT_KEY]: {
       id: crypto.randomUUID(),
       target: settings.target,
+      targetTabId: aiSurface?.tabId || null,
       autoSubmit: Boolean(settings.autoSubmit),
       prompt
     }
   });
 
-  await openAiSurface(settings.target, settings.openMode);
   return {
     target: settings.target,
     presetId
   };
 }
 
-async function openAiSurface(target, openMode) {
+async function openAiSurface(target, openMode, reuseExistingChat) {
   const aiTarget = AI_TARGETS[target];
 
   if (!aiTarget) {
     throw new Error("Unsupported AI target configured.");
   }
 
-  const existingTab = await findExistingAiTab(aiTarget.matchPatterns);
+  if (reuseExistingChat) {
+    const existingTab = await findExistingAiTab(aiTarget.matchPatterns);
 
-  if (existingTab?.id) {
-    await chrome.tabs.update(existingTab.id, { active: true });
+    if (existingTab?.id) {
+      await chrome.tabs.update(existingTab.id, { active: true });
 
-    if (existingTab.windowId) {
-      await chrome.windows.update(existingTab.windowId, { focused: true });
+      if (existingTab.windowId) {
+        await chrome.windows.update(existingTab.windowId, { focused: true });
+      }
+
+      return {
+        tabId: existingTab.id
+      };
     }
-
-    return;
   }
 
   if (openMode === "new-window") {
-    await chrome.windows.create({
+    const createdWindow = await chrome.windows.create({
       url: aiTarget.url,
       focused: true,
       type: "popup",
       width: 1200,
       height: 900
     });
-    return;
+
+    return {
+      tabId: createdWindow.tabs?.[0]?.id || null
+    };
   }
 
-  await chrome.tabs.create({
+  const createdTab = await chrome.tabs.create({
     url: aiTarget.url,
     active: true
   });
+
+  return {
+    tabId: createdTab.id || null
+  };
 }
 
 async function findExistingAiTab(matchPatterns) {

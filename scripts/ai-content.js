@@ -3,6 +3,7 @@ const POLL_INTERVAL_MS = 300;
 const EXPIRY_MS = 45000;
 let lastHandledPromptId = null;
 let pollTimer = null;
+let currentTabIdPromise = null;
 
 const TARGET_BY_HOST = {
   "chatgpt.com": "chatgpt",
@@ -53,6 +54,17 @@ const SUBMIT_SELECTORS = {
 
 function getCurrentTarget() {
   return TARGET_BY_HOST[window.location.hostname] || null;
+}
+
+async function getCurrentTabId() {
+  if (!currentTabIdPromise) {
+    currentTabIdPromise = chrome.runtime
+      .sendMessage({ type: "getCurrentTabId" })
+      .then((response) => response?.tabId || null)
+      .catch(() => null);
+  }
+
+  return currentTabIdPromise;
 }
 
 function dispatchInputEvent(element) {
@@ -133,8 +145,13 @@ async function clearPromptIfCurrent(promptId) {
 
 async function tryHandlePrompt(pendingPrompt) {
   const currentTarget = getCurrentTarget();
+  const currentTabId = await getCurrentTabId();
 
   if (!currentTarget || !pendingPrompt || pendingPrompt.target !== currentTarget) {
+    return false;
+  }
+
+  if (pendingPrompt.targetTabId && currentTabId !== pendingPrompt.targetTabId) {
     return false;
   }
 
