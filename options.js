@@ -9,6 +9,10 @@ const autoSubmit = document.getElementById("autoSubmit");
 const promptTemplate = document.getElementById("promptTemplate");
 const resetButton = document.getElementById("resetButton");
 const statusMessage = document.getElementById("statusMessage");
+const autoSkipAds = document.getElementById("autoSkipAds");
+const sponsorBlockEnabled = document.getElementById("sponsorBlockEnabled");
+const sponsorCategoryInputs = [...document.querySelectorAll("#sponsorCategories input")];
+const sponsorOrigin = { origins: ["https://sponsor.ajay.app/*"] };
 
 function setStatus(message, isError = false) {
   statusMessage.textContent = message;
@@ -34,22 +38,34 @@ async function populateForm() {
   populatePresetOptions(settings.defaultPreset);
   reuseExistingChat.checked = Boolean(settings.reuseExistingChat);
   autoSubmit.checked = Boolean(settings.autoSubmit);
+  autoSkipAds.checked = settings.autoSkipAds;
+  sponsorBlockEnabled.checked = settings.sponsorBlockEnabled;
+  sponsorCategoryInputs.forEach((input) => { input.checked = settings.sponsorCategories.includes(input.value); });
   promptTemplate.value = settings.promptTemplate;
 }
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
-
+  try {
+  // Request optional access directly from the Save gesture, before other awaits.
+  if (sponsorBlockEnabled.checked && !await chrome.permissions.request(sponsorOrigin)) {
+    setStatus("SponsorBlock access was not granted. Disable that option or allow access, then save again.", true);
+    return;
+  }
   await chrome.storage.sync.set({
     target: target.value,
     openMode: openMode.value,
     defaultPreset: defaultPreset.value,
     reuseExistingChat: reuseExistingChat.checked,
     autoSubmit: autoSubmit.checked,
+    autoSkipAds: autoSkipAds.checked,
+    sponsorBlockEnabled: sponsorBlockEnabled.checked,
+    sponsorCategories: sponsorCategoryInputs.filter((input) => input.checked).map((input) => input.value),
     promptTemplate: promptTemplate.value.trim() || DEFAULT_SETTINGS.promptTemplate
   });
 
   setStatus("Settings saved.");
+  } catch (error) { setStatus(error.message || "Settings could not be saved.", true); }
 });
 
 resetButton.addEventListener("click", async () => {

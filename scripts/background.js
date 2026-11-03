@@ -1,4 +1,4 @@
-importScripts("prompt-presets.js", "history-store.js");
+importScripts("prompt-presets.js", "history-store.js", "prompt-delivery.js", "playback-utils.js", "sponsor-service.js");
 
 const { DEFAULT_SETTINGS, normalizeSettings, resolvePromptTemplate } = globalThis.YTTA_PROMPTS;
 const { sanitizeHistory, upsertHistoryEntry } = globalThis.YTTA_HISTORY;
@@ -18,7 +18,8 @@ const AI_TARGETS = {
   }
 };
 
-const PENDING_PROMPT_KEY = "pendingPrompt";
+const { PREFIX, RESULT_PREFIX, TTL_MS, isPendingKey, isExpired } = YTTA_DELIVERY;
+let allocationChain = Promise.resolve();
 const HISTORY_KEY = "transcriptHistory";
 const DEBUG_PREFIX = "[YTTA][Background]";
 
@@ -56,6 +57,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "getCurrentTabId") {
     sendResponse({ ok: true, tabId: sender.tab?.id || null });
     return false;
+  }
+  if (message?.type === "getSponsorSegments") {
+    if (!sender.tab?.url?.startsWith("https://www.youtube.com/")) {
+      sendResponse({ ok: false, error: "SponsorBlock lookups are only available on YouTube." });
+      return false;
+    }
+    YTTA_SPONSORS.getSegments(message.videoId)
+      .then((segments) => sendResponse({ ok: true, segments }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
   }
 
   if (message?.type === "resendTranscript") {
@@ -154,11 +165,12 @@ async function handleSendTranscript(tab, requestedPresetId, requestId = crypto.r
   debugLog("prompt built", { requestId, presetId, promptLength: prompt.length });
 
   await saveTranscriptToHistory(response.payload, presetId);
-  await dispatchPrompt(prompt, settings, requestId);
+  const delivery = await dispatchPrompt(prompt, settings, requestId);
 
   return {
     target: settings.target,
-    presetId
+    presetId,
+    delivery
   };
 }
 
@@ -172,9 +184,9 @@ async function handleResendTranscript(entry, requestedPresetId) {
   const payload = { title: entry.title, url: entry.url, transcript: entry.transcript };
   const prompt = buildPrompt(resolvePromptTemplate(settings, presetId), payload);
 
-  await dispatchPrompt(prompt, settings, crypto.randomUUID());
+  const delivery = await dispatchPrompt(prompt, settings, crypto.randomUUID());
 
-  return { target: settings.target, presetId };
+  return { target: settings.target, presetId, delivery };
 }
 
 async function handleCompareTranscripts(entries, requestedPresetId) {
@@ -187,9 +199,9 @@ async function handleCompareTranscripts(entries, requestedPresetId) {
   const settings = normalizeSettings(await chrome.storage.sync.get(null));
   const prompt = buildComparePrompt(usable);
 
-  await dispatchPrompt(prompt, settings, crypto.randomUUID());
+  const delivery = await dispatchPrompt(prompt, settings, crypto.randomUUID());
 
-  return { target: settings.target };
+  return { target: settings.target, delivery };
 }
 
 function isUsableEntry(entry) {
@@ -239,22 +251,57 @@ async function saveTranscriptToHistory(payload, presetId) {
 }
 
 async function dispatchPrompt(prompt, settings, requestId) {
-  const aiSurface = await openAiSurface(settings.target, settings.openMode, settings.reuseExistingChat);
-  debugLog("AI surface opened", { requestId, aiSurface });
-
-  await chrome.storage.local.set({
-    [PENDING_PROMPT_KEY]: {
-      id: requestId,
-      target: settings.target,
-      targetTabId: aiSurface?.tabId || null,
-      autoSubmit: Boolean(settings.autoSubmit),
-      prompt
-    }
+  // Only allocation is serialized. Delivery to separate tabs can run in parallel.
+  const allocation = allocationChain.then(async () => {
+    await cleanupExpiredPrompts();
+    const aiSurface = await openAiSurface(settings.target, settings.openMode, settings.reuseExistingChat);
+    if (!Number.isInteger(aiSurface?.tabId)) throw new Error("Could not identify the destination AI tab.");
+    const expiresAt = Date.now() + TTL_MS;
+    await chrome.storage.local.set({
+      [`${PREFIX}${requestId}`]: {
+        id: requestId, target: settings.target, targetTabId: aiSurface.tabId,
+        autoSubmit: Boolean(settings.autoSubmit), prompt, expiresAt
+      }
+    });
+    return expiresAt;
   });
-  debugLog("pending prompt stored", {
-    requestId,
-    target: settings.target,
-    targetTabId: aiSurface?.tabId || null
+  allocationChain = allocation.catch(() => {});
+  const expiresAt = await allocation;
+  return waitForDelivery(requestId, expiresAt);
+}
+
+async function cleanupExpiredPrompts() {
+  const stored = await chrome.storage.local.get(null);
+  const keys = Object.keys(stored).filter((key) => key === "pendingPrompt" ||
+    (isPendingKey(key) && isExpired(stored[key])) ||
+    (key.startsWith(RESULT_PREFIX) && isExpired(stored[key])));
+  if (keys.length) await chrome.storage.local.remove(keys);
+}
+
+function waitForDelivery(id, expiresAt) {
+  const resultKey = `${RESULT_PREFIX}${id}`;
+  const pendingKey = `${PREFIX}${id}`;
+  return new Promise((resolve, reject) => {
+    let finished = false;
+    const finish = async (result, error) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      chrome.storage.onChanged.removeListener(onChanged);
+      await chrome.storage.local.remove([pendingKey, resultKey]).catch(() => {});
+      if (error || !result?.ok) reject(error || new Error(result?.error || "Prompt insertion failed."));
+      else resolve(result);
+    };
+    const onChanged = (changes, area) => {
+      if (area === "local" && changes[resultKey]?.newValue) void finish(changes[resultKey].newValue);
+    };
+    const timer = setTimeout(() => {
+      void finish(null, new Error("The AI composer was not ready in time. Sign in or finish loading the page, then resend the saved transcript."));
+    }, Math.max(0, expiresAt - Date.now()));
+    chrome.storage.onChanged.addListener(onChanged);
+    void chrome.storage.local.get(resultKey).then((stored) => {
+      if (stored[resultKey]) void finish(stored[resultKey]);
+    }).catch((error) => { void finish(null, error); });
   });
 }
 
@@ -320,17 +367,19 @@ async function openAiSurface(target, openMode, reuseExistingChat) {
 
 async function findExistingAiTab(matchPatterns) {
   const tabs = await chrome.tabs.query({ url: matchPatterns });
-
-  if (!tabs.length) {
-    return null;
+  const stored = await chrome.storage.local.get(null);
+  for (const tab of [...tabs].sort((a, b) => Number(b.active) - Number(a.active))) {
+    const reserved = Object.entries(stored).some(([key, value]) => isPendingKey(key) &&
+      !isExpired(value) && value.targetTabId === tab.id);
+    if (reserved) continue;
+    try {
+      const state = await chrome.tabs.sendMessage(tab.id, { type: "getComposerState" });
+      if (state?.ready && !state.hasDraft && !state.busy) return tab;
+    } catch { /* An unavailable composer is not safe to reuse. */ }
   }
-
-  return tabs.find((tab) => tab.active) || tabs[0];
+  return null;
 }
 
 function buildPrompt(template, payload) {
-  return template
-    .replaceAll("{{title}}", payload.title)
-    .replaceAll("{{url}}", payload.url)
-    .replaceAll("{{transcript}}", payload.transcript);
+  return template.replace(/\{\{(title|url|transcript)\}\}/g, (_match, key) => String(payload[key] || ""));
 }

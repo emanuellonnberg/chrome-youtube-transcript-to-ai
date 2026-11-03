@@ -44,6 +44,28 @@
           <span>Auto-submit after inserting the transcript</span>
         </label>
 
+        <fieldset>
+          <legend>YouTube playback</legend>
+          <label class="field checkbox">
+            <input id="autoSkipAds" type="checkbox">
+            <span>Automatically click Skip ad when YouTube makes it available</span>
+          </label>
+          <p class="help">This waits for YouTube's Skip button. It does not block ads or skip unskippable ads.</p>
+          <label class="field checkbox">
+            <input id="sponsorBlockEnabled" type="checkbox">
+            <span>Skip community-marked segments using SponsorBlock</span>
+          </label>
+          <p class="help">When enabled, Chrome asks for access to SponsorBlock. Segment lookups send a short hash prefix of the video ID to its service. Your IP address is visible to the service. No lookups are made while this setting is off.</p>
+          <div id="sponsorCategories">
+            <label class="field checkbox"><input type="checkbox" value="sponsor" checked><span>Sponsorships</span></label>
+            <label class="field checkbox"><input type="checkbox" value="intro"><span>Intros</span></label>
+            <label class="field checkbox"><input type="checkbox" value="outro"><span>Outros</span></label>
+            <label class="field checkbox"><input type="checkbox" value="selfpromo"><span>Self-promotion</span></label>
+            <label class="field checkbox"><input type="checkbox" value="interaction"><span>Subscribe / like reminders</span></label>
+          </div>
+          <p class="help">Use Undo after a skip to replay it. Segment data by <a href="https://sponsor.ajay.app/" target="_blank" rel="noreferrer">SponsorBlock contributors</a>, licensed under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank" rel="noreferrer">CC BY-NC-SA 4.0</a>.</p>
+        </fieldset>
+
         <label class="field">
           <span>Custom preset template</span>
           <textarea id="promptTemplate" name="promptTemplate" rows="14"></textarea>

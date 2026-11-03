@@ -109,3 +109,7 @@ button.secondary {
   margin-top: 16px;
   color: #93c5fd;
 }
+
+fieldset { margin: 24px 0; border: 1px solid #334155; border-radius: 10px; padding: 18px; }
+legend { padding: 0 8px; font-weight: 700; }
+a { color: #93c5fd; }

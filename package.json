@@ -2,6 +2,7 @@
   "name": "chrome-youtube-transcript-to-ai",
   "private": true,
   "scripts": {
-    "test": "node --test"
+    "test": "node --test tests/*.test.js",
+    "test:browser": "node tests/browser-smoke.cjs"
   }
 }

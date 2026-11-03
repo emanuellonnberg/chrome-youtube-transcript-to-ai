@@ -4,8 +4,8 @@ const {
   normalizeSettings
 } = globalThis.YTTA_PROMPTS;
 
-const POT_POLL_INTERVAL_MS = 50;
-const POT_POLL_ATTEMPTS = 20;
+const TIMEDTEXT_POLL_INTERVAL_MS = 100;
+const TIMEDTEXT_POLL_ATTEMPTS = 30;
 const INLINE_ROOT_ID = "ytta-inline-actions";
 const INLINE_STYLE_ID = "ytta-inline-actions-style";
 const INLINE_RENDER_DELAY_MS = 150;
@@ -29,6 +29,10 @@ let inlineTranscriptReadiness = null;
 let inlineIsLoading = false;
 let lastKnownUrl = window.location.href;
 const debugEntries = [];
+let playerResponseCache = null;
+let transcriptCache = null;
+let inlineObserver = null;
+let inlineRenderInProgress = false;
 
 function formatDebugDetails(details) {
   if (!details) {
@@ -97,6 +101,22 @@ if (hasExtensionContext()) {
 }
 
 async function extractTranscriptPayload() {
+  const videoId = getCurrentVideoId();
+  if (!isWatchPage() || !videoId) throw new Error("Open a YouTube video first.");
+  if (transcriptCache?.videoId !== videoId) {
+    const state = { videoId };
+    transcriptCache = state;
+    state.promise = collectTranscriptPayload(videoId).catch((error) => {
+      if (transcriptCache === state) transcriptCache = null;
+      throw error;
+    });
+  }
+  const payload = await transcriptCache.promise;
+  if (getCurrentVideoId() !== videoId || !isWatchPage()) throw new Error("The video changed. Please try again.");
+  return payload;
+}
+
+async function collectTranscriptPayload(expectedVideoId) {
   debugLog("extractTranscriptPayload start", { videoId: getCurrentVideoId() });
   const playerResponse = await readPlayerResponseForCurrentVideo();
   const captionTracks = getCaptionTracks(playerResponse);
@@ -118,19 +138,27 @@ async function extractTranscriptPayload() {
     throw new Error("The transcript track URL is missing.");
   }
 
-  const pot = await getPot();
-  debugLog("pot lookup finished", { hasPot: Boolean(pot) });
-  const transcriptUrl = buildTranscriptUrl(preferredTrack.baseUrl, pot);
-  const transcript = await fetchTranscriptText(transcriptUrl);
+  const videoId = playerResponse?.videoDetails?.videoId || getCurrentVideoId();
+  const transcriptUrl = await getLiveTranscriptUrl(videoId);
+  debugLog("live transcript url lookup finished", { hasUrl: Boolean(transcriptUrl) });
+
+  if (!transcriptUrl) {
+    throw new Error("Could not capture the transcript from the player. Start playback, then try again.");
+  }
+
+  const cues = await fetchTranscriptCues(transcriptUrl);
+  const transcript = YTTA_TRANSCRIPTS.cuesToText(cues, true);
 
   if (!transcript) {
     throw new Error("The transcript did not contain any text.");
   }
 
+  if (getCurrentVideoId() !== expectedVideoId || !isWatchPage()) throw new Error("The video changed. Please try again.");
   return {
     title: playerResponse?.videoDetails?.title || document.title || "Untitled video",
-    url: window.location.href,
-    transcript
+    url: `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`,
+    transcript,
+    cues
   };
 }
 
@@ -235,7 +263,7 @@ function parsePlayerResponseFromText(text) {
 async function fetchWatchPagePlayerResponse(videoId) {
   debugLog("fetch watch page player response", { videoId });
   const response = await fetch(`https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`, {
-    credentials: "include"
+    credentials: "include", signal: AbortSignal.timeout(12000)
   });
 
   if (!response.ok) {
@@ -262,6 +290,26 @@ async function fetchWatchPagePlayerResponse(videoId) {
   return null;
 }
 
+function readBridgedPlayerResponse(videoId) {
+  return new Promise((resolve) => {
+    const id = crypto.randomUUID();
+    const finish = (value) => {
+      clearTimeout(timer);
+      window.removeEventListener("message", onMessage);
+      resolve(value);
+    };
+    const onMessage = (event) => {
+      if (event.source !== window || event.origin !== location.origin || event.data?.type !== "YTTA_PLAYER_RESPONSE" || event.data.id !== id) return;
+      const data = event.data.playerResponse;
+      finish(data?.videoDetails?.videoId === videoId && typeof data.videoDetails.title === "string" &&
+        Array.isArray(getCaptionTracks(data)) ? data : null);
+    };
+    const timer = setTimeout(() => finish(null), 800);
+    window.addEventListener("message", onMessage);
+    window.postMessage({ type: "YTTA_PLAYER_REQUEST", id, videoId }, location.origin);
+  });
+}
+
 async function readPlayerResponseForCurrentVideo() {
   const currentVideoId = getCurrentVideoId();
 
@@ -269,20 +317,19 @@ async function readPlayerResponseForCurrentVideo() {
     throw new Error("Could not determine the current YouTube video.");
   }
 
-  const global = window.ytInitialPlayerResponse;
-
-  if (global?.videoDetails?.videoId === currentVideoId) {
-    debugLog("using window.ytInitialPlayerResponse", { videoId: currentVideoId });
-    return global;
+  if (playerResponseCache?.videoId !== currentVideoId) {
+    const state = { videoId: currentVideoId };
+    playerResponseCache = state;
+    state.promise = (async () => {
+      const response = await readBridgedPlayerResponse(currentVideoId) || await fetchWatchPagePlayerResponse(currentVideoId);
+      if (!response) throw new Error("Could not read the YouTube player data for the current video.");
+      return response;
+    })().catch((error) => {
+      if (playerResponseCache === state) playerResponseCache = null;
+      throw error;
+    });
   }
-
-  const playerResponse = await fetchWatchPagePlayerResponse(currentVideoId);
-
-  if (playerResponse) {
-    return playerResponse;
-  }
-
-  throw new Error("Could not read the YouTube player data for the current video.");
+  return playerResponseCache.promise;
 }
 
 const CC_BUTTON_SELECTORS = [
@@ -302,11 +349,15 @@ function findCcButton() {
   return null;
 }
 
-async function getPot() {
-  const cached = readPotFromPerformance();
+async function getLiveTranscriptUrl(videoId) {
+  // The baseUrl inside ytInitialPlayerResponse is a stale, experiment-tagged
+  // template (exp=xpe) that YouTube now serves empty. Only the signed URL the
+  // player itself requests returns data, and we can't re-sign it — so trigger
+  // the player to fetch captions and read that live URL from resource timings.
+  const existing = readTimedtextUrlFromPerformance(videoId);
 
-  if (cached) {
-    return cached;
+  if (existing) {
+    return ensureJson3(existing);
   }
 
   const button = findCcButton();
@@ -315,41 +366,45 @@ async function getPot() {
     return "";
   }
 
+  const originallyEnabled = button.getAttribute("aria-pressed") === "true";
+  const startedAt = performance.now();
+  let url = "";
   try {
-    performance.clearResourceTimings();
+    // If captions are already on, switch off and back on immediately to request
+    // them again. Never wait with the viewer's captions switched off.
+    if (originallyEnabled) button.click();
     button.click();
-    button.click();
-  } catch {
-    return "";
-  }
-
-  for (let index = 0; index < POT_POLL_ATTEMPTS; index += 1) {
-    await sleep(POT_POLL_INTERVAL_MS);
-    const pot = readPotFromPerformance();
-
-    if (pot) {
-      return pot;
+    for (let index = 0; index < TIMEDTEXT_POLL_ATTEMPTS; index += 1) {
+      await sleep(TIMEDTEXT_POLL_INTERVAL_MS);
+      if (getCurrentVideoId() !== videoId || !isWatchPage()) throw new Error("The video changed. Please try again.");
+      url = readTimedtextUrlFromPerformance(videoId, startedAt);
+      if (url) break;
     }
+  } finally {
+    if (getCurrentVideoId() === videoId && isWatchPage() && button.isConnected &&
+      (button.getAttribute("aria-pressed") === "true") !== originallyEnabled) button.click();
   }
 
-  return "";
+  return url ? ensureJson3(url) : "";
 }
 
-function readPotFromPerformance() {
+function readTimedtextUrlFromPerformance(videoId, since = 0) {
   const entries = performance.getEntriesByType("resource");
 
   for (let index = entries.length - 1; index >= 0; index -= 1) {
-    const entry = entries[index];
+    const name = entries[index].name;
+    if (entries[index].startTime < since) continue;
 
-    if (!entry.name.includes("/api/timedtext")) {
+    if (!name.includes("/api/timedtext")) {
       continue;
     }
 
     try {
-      const pot = new URL(entry.name).searchParams.get("pot");
+      const entryVideoId = new URL(name).searchParams.get("v");
 
-      if (pot) {
-        return pot;
+      // Guard against a stale entry from the previous SPA-navigated video.
+      if (!videoId || entryVideoId === videoId) {
+        return name;
       }
     } catch {
       continue;
@@ -363,16 +418,16 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function buildTranscriptUrl(baseUrl, pot) {
-  if (pot) {
-    return `${baseUrl}&pot=${encodeURIComponent(pot)}&c=WEB`;
-  }
-
-  return baseUrl;
+function ensureJson3(url) {
+  const parsed = new URL(url);
+  parsed.searchParams.set("fmt", "json3");
+  return parsed.href;
 }
 
-async function fetchTranscriptText(transcriptUrl) {
-  const response = await fetch(transcriptUrl, { credentials: "include" });
+async function fetchTranscriptCues(transcriptUrl) {
+  const parsed = new URL(transcriptUrl);
+  if (parsed.origin !== "https://www.youtube.com" || parsed.pathname !== "/api/timedtext") throw new Error("Unexpected caption URL.");
+  const response = await fetch(parsed.href, { credentials: "include", signal: AbortSignal.timeout(12000) });
 
   if (!response.ok) {
     throw new Error(`The transcript could not be loaded (HTTP ${response.status}).`);
@@ -384,32 +439,14 @@ async function fetchTranscriptText(transcriptUrl) {
     throw new Error("The transcript response was empty.");
   }
 
-  return parseXmlTranscript(text);
-}
-
-function parseXmlTranscript(xmlText) {
-  const lines = [];
-  const pattern = /<text[^>]*>([\s\S]*?)<\/text>/g;
-  let match;
-
-  while ((match = pattern.exec(xmlText)) !== null) {
-    const decoded = decodeHtmlEntities(match[1]).replace(/\s+/g, " ").trim();
-
-    if (decoded) {
-      lines.push(decoded);
-    }
-  }
-
-  return lines.length ? lines.join("\n") : null;
-}
-
-function decodeHtmlEntities(text) {
-  return text
-    .replaceAll("&#39;", "'")
-    .replaceAll("&quot;", "\"")
-    .replaceAll("&amp;", "&")
-    .replaceAll("&lt;", "<")
-    .replaceAll("&gt;", ">");
+  if (text.trim().startsWith("{")) return YTTA_TRANSCRIPTS.parseJson3Cues(text);
+  const xml = new DOMParser().parseFromString(text, "text/xml");
+  if (xml.querySelector("parsererror")) throw new Error("The caption response was invalid.");
+  return YTTA_TRANSCRIPTS.normalizeCues([...xml.querySelectorAll("text, p")].map((node) => ({
+    start: node.hasAttribute("start") ? Number(node.getAttribute("start")) : Number(node.getAttribute("t")) / 1000,
+    duration: node.hasAttribute("dur") ? Number(node.getAttribute("dur")) : Number(node.getAttribute("d")) / 1000,
+    text: node.textContent
+  })));
 }
 
 function isWatchPage() {
@@ -461,7 +498,7 @@ function resetInlineTranscriptReadiness() {
 }
 
 function getInlineActionButtons(root) {
-  return root.querySelectorAll(".ytta-button:not([data-role='settings']):not([data-role='debug'])");
+  return root.querySelectorAll(".ytta-button:not([data-role='settings']):not([data-role='debug']):not([data-role='transcript'])");
 }
 
 function setInlineActionButtonsDisabled(root, disabled) {
@@ -488,6 +525,7 @@ function startInlineLoadingState() {
 function markInlineUiLoading(root) {
   delete root.dataset.holdStatus;
   delete root.dataset.busy;
+  delete root.dataset.sendRequestId;
   root.dataset.loading = "true";
   setInlineActionButtonsDisabled(root, true);
   const sendButton = root.querySelector('[data-role="default-send"]');
@@ -763,6 +801,7 @@ function createInlineRoot() {
     <button class="ytta-button ytta-primary" type="button" data-role="default-send"></button>
     <div class="ytta-quick-presets" data-role="quick-presets"></div>
     <button class="ytta-button ytta-secondary" type="button" data-role="settings">Settings</button>
+    <button class="ytta-button ytta-secondary" type="button" data-role="transcript" aria-expanded="false" aria-controls="ytta-transcript-panel">Transcript</button>
     <button class="ytta-button ytta-secondary" type="button" data-role="debug">Debug</button>
     <span class="ytta-status" data-role="status"></span>
   `;
@@ -820,6 +859,9 @@ function createInlineRoot() {
   root.querySelector('[data-role="debug"]').addEventListener("click", () => {
     dumpInlineDebugLog(root);
   });
+  root.querySelector('[data-role="transcript"]').addEventListener("click", () => {
+    document.dispatchEvent(new CustomEvent("ytta-toggle-transcript"));
+  });
 
   return root;
 }
@@ -864,12 +906,13 @@ function mountInlineRoot(anchor, root) {
 
 function setInlineStatus(root, message, isError = false) {
   const status = root.querySelector('[data-role="status"]');
-  status.textContent = message;
+  if (status.textContent !== message) status.textContent = message;
   status.dataset.error = isError ? "true" : "false";
   debugLog("inline status", { message, isError });
 }
 
 async function renderInlineActions() {
+  const renderVideoId = getCurrentVideoId();
   if (!hasExtensionContext()) {
     teardownInlineUi();
     return;
@@ -924,29 +967,33 @@ async function renderInlineActions() {
   const sendButton = root.querySelector('[data-role="default-send"]');
   const quickPresetContainer = root.querySelector('[data-role="quick-presets"]');
 
-  sendButton.textContent = `${getPromptPresetLabel(settings.defaultPreset)} -> ${targetLabel}`;
-  quickPresetContainer.innerHTML = "";
+  const label = `${getPromptPresetLabel(settings.defaultPreset)} -> ${targetLabel}`;
+  if (sendButton.textContent !== label) sendButton.textContent = label;
+  const presetKey = `${settings.defaultPreset}:${settings.target}`;
+  if (root.dataset.presetKey !== presetKey) {
+    root.dataset.presetKey = presetKey;
+    quickPresetContainer.innerHTML = "";
 
-  for (const preset of getQuickPresetDefinitions()) {
-    if (preset.id === settings.defaultPreset) {
-      continue;
-    }
+    for (const preset of getQuickPresetDefinitions()) {
+      if (preset.id === settings.defaultPreset) continue;
 
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "ytta-button ytta-secondary";
-    button.textContent = preset.label;
-    button.addEventListener("click", () => {
-      debugLog("quick preset button clicked", {
-        presetId: preset.id,
-        videoId: getCurrentVideoId()
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "ytta-button ytta-secondary";
+      button.textContent = preset.label;
+      button.addEventListener("click", () => {
+        debugLog("quick preset button clicked", {
+          presetId: preset.id,
+          videoId: getCurrentVideoId()
+        });
+        void handleInlineSend(root, preset.id);
       });
-      void handleInlineSend(root, preset.id);
-    });
-    quickPresetContainer.appendChild(button);
+      quickPresetContainer.appendChild(button);
+    }
   }
 
   const readiness = await getInlineTranscriptReadiness();
+  if (!root.isConnected || inlineIsLoading || !isWatchPage() || renderVideoId !== getCurrentVideoId()) return;
 
   if (!readiness.ready) {
     markInlineUiNotReady(
@@ -958,7 +1005,7 @@ async function renderInlineActions() {
   }
 
   delete root.dataset.loading;
-  setInlineActionButtonsDisabled(root, false);
+  setInlineActionButtonsDisabled(root, Boolean(root.dataset.busy));
 
   if (!root.dataset.busy && !root.dataset.holdStatus) {
     setInlineStatus(
@@ -985,17 +1032,20 @@ function scheduleInlineRender(delayMs = INLINE_RENDER_DELAY_MS) {
       return;
     }
 
+    if (inlineRenderInProgress) { scheduleInlineRender(); return; }
+    inlineRenderInProgress = true;
     renderInlineActions().catch((error) => {
       if (isContextInvalidated(error)) {
         teardownInlineUi();
         return;
       }
       console.error("[YouTube Transcript to AI]", error);
-    });
+    }).finally(() => { inlineRenderInProgress = false; });
   }, delayMs);
 }
 
 async function handleInlineSend(root, presetId = null) {
+  if (root.dataset.busy) return;
   if (!hasExtensionContext()) {
     teardownInlineUi();
     return;
@@ -1011,6 +1061,7 @@ async function handleInlineSend(root, presetId = null) {
     url: window.location.href
   });
   root.dataset.busy = "true";
+  root.dataset.sendRequestId = requestId;
   buttons.forEach((button) => {
     if (button.dataset.role !== "debug") {
       button.disabled = true;
@@ -1038,6 +1089,7 @@ async function handleInlineSend(root, presetId = null) {
     });
 
     debugLog("sendTranscriptToAi response", { requestId, response });
+    if (root.dataset.sendRequestId !== requestId) return;
 
     if (!response?.ok) {
       throw new Error(response?.error || "The transcript could not be sent.");
@@ -1045,7 +1097,7 @@ async function handleInlineSend(root, presetId = null) {
 
     setInlineStatus(
       root,
-      `${getPromptPresetLabel(response.presetId || resolvedPresetId)} opened in ${prettifyTarget(response.target)}.`
+      `${getPromptPresetLabel(response.presetId || resolvedPresetId)} inserted in ${prettifyTarget(response.target)}.${response.delivery?.manualSubmitRequired ? " Press Send there to submit." : ""}`
     );
   } catch (error) {
     if (isContextInvalidated(error)) {
@@ -1055,11 +1107,12 @@ async function handleInlineSend(root, presetId = null) {
     }
     debugLog("handleInlineSend failed", { requestId, error: formatDebugDetails(error) });
     console.error("[YouTube Transcript to AI]", error);
-    setInlineStatus(root, error.message || "Something went wrong.", true);
+    if (root.dataset.sendRequestId === requestId) setInlineStatus(root, error.message || "Something went wrong.", true);
   } finally {
     // Skip DOM/Chrome work if context was invalidated (root already removed).
-    if (document.getElementById(INLINE_ROOT_ID)) {
+    if (root.isConnected && root.dataset.sendRequestId === requestId) {
       delete root.dataset.busy;
+      delete root.dataset.sendRequestId;
       buttons.forEach((button) => {
         if (button.dataset.role !== "debug") {
           button.disabled = false;
@@ -1077,6 +1130,8 @@ async function handleInlineSend(root, presetId = null) {
 function handlePotentialNavigationChange() {
   if (lastKnownUrl !== window.location.href) {
     lastKnownUrl = window.location.href;
+    playerResponseCache = null;
+    transcriptCache = null;
     startInlineLoadingState();
     const root = document.getElementById(INLINE_ROOT_ID);
 
@@ -1097,11 +1152,14 @@ function startInlineUi() {
   startInlineLoadingState();
   scheduleInlineRender();
 
-  const observer = new MutationObserver(() => {
+  inlineObserver = new MutationObserver(() => {
+    if (!hasExtensionContext()) { inlineObserver.disconnect(); teardownInlineUi(); return; }
+    if (lastKnownUrl === window.location.href &&
+      (!isWatchPage() || document.getElementById(INLINE_ROOT_ID)?.isConnected)) return;
     handlePotentialNavigationChange();
   });
 
-  observer.observe(document.documentElement, {
+  inlineObserver.observe(document.documentElement, {
     childList: true,
     subtree: true
   });

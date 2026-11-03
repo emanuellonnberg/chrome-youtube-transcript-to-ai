@@ -93,7 +93,7 @@ async function handleSendClick() {
     }
 
     setStatus(
-      `${getPromptPresetLabel(response.presetId || presetId)} opened in ${prettifyTarget(response.target)}.`
+      `${getPromptPresetLabel(response.presetId || presetId)} inserted in ${prettifyTarget(response.target)}.${response.delivery?.manualSubmitRequired ? " Press Send there to submit." : ""}`
     );
   } catch (error) {
     setStatus(error.message || "Something went wrong.", true);
@@ -260,7 +260,7 @@ async function resendEntry(entry) {
       throw new Error(response?.error || "The transcript could not be resent.");
     }
 
-    setStatus(`Opened in ${prettifyTarget(response.target)}.`);
+    setStatus(`Inserted in ${prettifyTarget(response.target)}.${response.delivery?.manualSubmitRequired ? " Press Send there to submit." : ""}`);
   } catch (error) {
     setStatus(error.message || "Something went wrong.", true);
   }
@@ -306,7 +306,7 @@ async function handleCompareClick() {
       throw new Error(response?.error || "The comparison could not be sent.");
     }
 
-    setStatus(`Comparison opened in ${prettifyTarget(response.target)}.`);
+    setStatus(`Comparison inserted in ${prettifyTarget(response.target)}.${response.delivery?.manualSubmitRequired ? " Press Send there to submit." : ""}`);
   } catch (error) {
     setStatus(error.message || "Something went wrong.", true);
   } finally {

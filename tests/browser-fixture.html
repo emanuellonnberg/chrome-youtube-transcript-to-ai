@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Extension browser fixture</title>
+<link rel="stylesheet" href="/scripts/youtube-features.css">
+<style>body{font:16px Arial;max-width:1000px;margin:30px auto;background:#0f0f0f;color:#eee}#movie_player{height:250px;background:#252525;padding:20px}video{display:none}#owner{padding:20px 0}button{margin:4px} </style>
+<script>
+  const fixture = window.fixture = { sync: {}, syncReads: 0, sponsorLookups: 0, skips: 0, ccClicks: 0, timings: [], fetches: 0, listeners: [], messages: [], blockSend: false };
+  const listeners = [];
+  window.chrome = { runtime: {
+    id: "fixture", onMessage: { addListener(listener) { fixture.messages.push(listener); } },
+    async sendMessage(message) {
+      if (message.type === "getSponsorSegments") { fixture.sponsorLookups++; return { ok: true, segments: [{ id: "sponsor-1", start: 10, end: 20, category: "sponsor", videoDuration: 300 }] }; }
+      if (message.type === "sendTranscriptToAi") {
+        if (fixture.blockSend) await new Promise((resolve) => { fixture.unblockSend = resolve; });
+        return { ok: true, target: "chatgpt" };
+      }
+    }
+  }, storage: {
+    sync: { async get() { fixture.syncReads++; return { ...fixture.sync }; } },
+    onChanged: { addListener(listener) { listeners.push(listener); } }
+  } };
+  fixture.settings = (values) => {
+    Object.assign(fixture.sync, values);
+    const changes = Object.fromEntries(Object.entries(values).map(([key,newValue]) => [key,{newValue}]));
+    listeners.forEach((listener) => listener(changes, "sync"));
+  };
+  fixture.navigate = (id) => {
+    history.pushState(null, "", id ? `/watch?v=${id}` : "/");
+    window.dispatchEvent(new Event("yt-navigate-finish"));
+  };
+  performance.getEntriesByType = () => fixture.timings;
+  performance.clearResourceTimings = () => { throw new Error("Resource timings must not be cleared"); };
+  window.fetch = async (url) => {
+    fixture.fetches++;
+    if (!String(url).includes("/api/timedtext")) throw new Error("Unexpected watch-page fetch: bridge should supply player data");
+    return { ok: true, async text() { return JSON.stringify({ events: [
+      { tStartMs: 0, dDurationMs: 2000, segs: [{ utf8: "Welcome to the video" }] },
+      { tStartMs: 65000, dDurationMs: 2000, segs: [{ utf8: "Searchable bananas and apples" }] },
+      { tStartMs: 125000, dDurationMs: 2000, segs: [{ utf8: "Closing thoughts" }] }
+    ] }); } };
+  };
+</script>
+<script src="/scripts/player-bridge.js"></script></head>
+<body>
+<h1>Transcript and playback test</h1>
+<div id="movie_player"><video></video><span>Video player fixture</span>
+<button class="ytp-subtitles-button" aria-pressed="false">CC</button>
+<button class="ytp-skip-ad-button">Skip ad</button></div>
+<ytd-watch-metadata><div id="owner">Example channel</div><div id="description">Video description</div></ytd-watch-metadata>
+<script>
+  const player = document.getElementById("movie_player");
+  const video = player.querySelector("video");
+  Object.defineProperty(video, "duration", { get: () => 300 });
+  Object.defineProperty(video, "paused", { get: () => false });
+  Object.defineProperty(video, "seeking", { get: () => false });
+  player.getPlayerResponse = () => ({ videoDetails: { videoId: new URLSearchParams(location.search).get("v"), title: "Fixture video" }, captions: { playerCaptionsTracklistRenderer: { captionTracks: [{ baseUrl: "https://www.youtube.com/api/timedtext", languageCode: "en" }] } } });
+  player.querySelector(".ytp-subtitles-button").onclick = (event) => {
+    fixture.ccClicks++;
+    const button = event.currentTarget;
+    const enabled = button.getAttribute("aria-pressed") !== "true";
+    button.setAttribute("aria-pressed", String(enabled));
+    if (enabled) fixture.timings.push({ name: `https://www.youtube.com/api/timedtext?v=${new URLSearchParams(location.search).get("v")}&fmt=json3`, startTime: performance.now() });
+  };
+  player.querySelector(".ytp-skip-ad-button").onclick = () => { fixture.skips++; };
+</script>
+<script src="/scripts/prompt-presets.js"></script><script src="/scripts/transcript-utils.js"></script>
+<script src="/scripts/playback-utils.js"></script><script src="/scripts/youtube-content.js"></script><script src="/scripts/youtube-features.js"></script>
+</body></html>

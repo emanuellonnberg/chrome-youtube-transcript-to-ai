@@ -1,0 +1,17 @@
+#ytta-transcript-panel {
+  box-sizing: border-box; width: 100%; margin: 12px 0; padding: 16px;
+  border: 1px solid var(--yt-spec-10-percent-layer, #8886); border-radius: 12px;
+  background: var(--yt-spec-base-background, #181818); color: var(--yt-spec-text-primary, #eee);
+  font: 14px/1.5 Roboto, Arial, sans-serif;
+}
+#ytta-transcript-panel[hidden], #ytta-transcript-panel [hidden] { display: none; }
+#ytta-transcript-panel .ytta-panel-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+#ytta-transcript-panel .ytta-search-label { display: block; margin: 12px 0; }
+#ytta-transcript-panel input { box-sizing: border-box; display: block; width: 100%; margin-top: 6px; padding: 10px; border: 1px solid #8888; border-radius: 8px; color: inherit; background: transparent; font: inherit; }
+#ytta-transcript-panel button, #ytta-playback-notice button { font: inherit; cursor: pointer; color: inherit; background: #8882; border: 1px solid #8886; border-radius: 8px; padding: 6px 12px; }
+#ytta-transcript-panel .ytta-cues { max-height: 420px; overflow-y: auto; overscroll-behavior: contain; margin: 10px 0; }
+#ytta-transcript-panel .ytta-cue { display: flex; gap: 12px; width: 100%; text-align: left; border: 0; background: transparent; padding: 9px 6px; }
+#ytta-transcript-panel .ytta-cue:hover { background: #8882; }
+#ytta-transcript-panel .ytta-cue-time { flex: 0 0 60px; color: var(--yt-spec-call-to-action, #3ea6ff); font-variant-numeric: tabular-nums; }
+#ytta-transcript-panel button:focus-visible, #ytta-transcript-panel input:focus-visible { outline: 2px solid #3ea6ff; outline-offset: 2px; }
+#ytta-playback-notice { position: fixed; bottom: 28px; left: 24px; z-index: 2200; display: flex; align-items: center; gap: 12px; max-width: min(520px, calc(100vw - 72px)); padding: 12px 16px; border-radius: 10px; border: 1px solid #666; background: #181818; color: #fff; box-shadow: 0 4px 20px #0005; font: 14px/1.5 Roboto, Arial, sans-serif; }

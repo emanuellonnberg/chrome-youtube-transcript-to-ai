@@ -1,7 +1,8 @@
 {
   "manifest_version": 3,
   "name": "YouTube Transcript to AI",
-  "version": "1.0.0",
+  "version": "1.1.0",
+  "minimum_chrome_version": "111",
   "description": "Grab the transcript from the current YouTube video and open it in ChatGPT, Claude, or Gemini.",
   "permissions": [
     "storage",
@@ -14,6 +15,7 @@
     "https://claude.ai/*",
     "https://gemini.google.com/*"
   ],
+  "optional_host_permissions": ["https://sponsor.ajay.app/*"],
   "background": {
     "service_worker": "scripts/background.js"
   },
@@ -24,8 +26,15 @@
   "options_page": "options.html",
   "content_scripts": [
     {
-      "matches": ["https://www.youtube.com/watch*"],
-      "js": ["scripts/prompt-presets.js", "scripts/youtube-content.js"],
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["scripts/player-bridge.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["scripts/prompt-presets.js", "scripts/transcript-utils.js", "scripts/playback-utils.js", "scripts/youtube-content.js", "scripts/youtube-features.js"],
+      "css": ["scripts/youtube-features.css"],
       "run_at": "document_idle"
     },
     {
@@ -35,7 +44,7 @@
         "https://claude.ai/*",
         "https://gemini.google.com/*"
       ],
-      "js": ["scripts/ai-content.js"],
+      "js": ["scripts/prompt-delivery.js", "scripts/ai-content.js"],
       "run_at": "document_idle"
     }
   ]

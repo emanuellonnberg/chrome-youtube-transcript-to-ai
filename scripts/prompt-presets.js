@@ -108,6 +108,9 @@
     openMode: "new-tab",
     reuseExistingChat: false,
     autoSubmit: false,
+    autoSkipAds: false,
+    sponsorBlockEnabled: false,
+    sponsorCategories: ["sponsor"],
     defaultPreset: "short-summary",
     promptTemplate: PRESET_MAP.custom.template
   };
@@ -125,6 +128,11 @@
       ...DEFAULT_SETTINGS,
       ...stored,
       reuseExistingChat: Boolean(stored.reuseExistingChat),
+      autoSkipAds: stored.autoSkipAds === true,
+      sponsorBlockEnabled: stored.sponsorBlockEnabled === true,
+      sponsorCategories: Array.isArray(stored.sponsorCategories)
+        ? [...new Set(stored.sponsorCategories.filter((value) => ["sponsor", "intro", "outro", "selfpromo", "interaction"].includes(value)))]
+        : ["sponsor"],
       defaultPreset,
       promptTemplate
     };
